@@ -494,14 +494,26 @@
                 // --- 資料讀取 ---
                 // 從 GAS API 載入所有資料，並初始化前端狀態。
                 // 注意：Google Sheets 的 analyze 可能是字串 "TRUE"，這裡會轉成布林值。
+                // --- 資料讀取 ---
                 async fetchData() {
                     this.isLoading = true;
                     try {
                         const res = await fetch(this.scriptUrl);
                         const data = await res.json();
-                        // ... (上面是 pets 的讀取，保持不變)
+                        
+                        // 👉 1. 這裡是你原本不小心刪掉的 pets 讀取程式碼，幫你補回來了！
+                        this.pets = (data.pets || []).map(p => ({ 
+                            ...p, 
+                            id: String(p.id || Date.now() + Math.random()),
+                            isEditing: false, 
+                            tags: this.parseTags(p.tags),
+                            father: String(p.father || ''),
+                            mother: String(p.mother || ''),
+                            species: p.species || p.speceis || '',
+                            analyze: p.analyze === true || String(p.analyze).toUpperCase() === 'TRUE' 
+                        }));
 
-                        // 這是原本讀取 tags 的程式碼
+                        // 👉 2. 這是讀取 tags 的程式碼
                         this.tags = (data.tags || []).map(t => ({
                             ...t,
                             species: String(t.species || t.speceis || '').trim(),
@@ -513,7 +525,7 @@
                             bias: String(t.bias || '').trim()
                         }));
 
-                        // 👉 請在這裡新增以下這段「全局排序」邏輯
+                        // 👉 3. 這是剛剛新增的全局排序邏輯 (依稀有度排序)
                         this.tags.sort((a, b) => {
                             // 將 NA 視為最低優先級 (給一個很大的數字 999)，其他的則取其 color_rank 數字
                             const rankA = a.color_rank === 'NA' ? 999 : Number(a.color_rank);
@@ -522,13 +534,16 @@
                             // 由小排到大 (0 最稀有會在最前面，再來是 1、2、3... 最後是 NA)
                             return rankA - rankB; 
                         });
-                        // 👈 新增結束
 
-                        // ... (下面保持不變)
+                        // 👉 4. 這裡是你原本的其他資料讀取
                         this.ownerList = data.owners || [];
                         this.records = (data.records || []).map(r => ({ ...r, tags: this.parseTags(r.tags) }));
                         this.breedingQueue = (data.breeding || []).map(b => ({ ...b, remainingTime: Math.max(0, Number(b.end) - Date.now()), pADone: b.pADone === true || b.pADone === "TRUE", pBDone: b.pBDone === true || b.pBDone === "TRUE" }));
-                    } catch (e) { console.error(e); } finally { this.isLoading = false; }
+                    } catch (e) { 
+                        console.error(e); 
+                    } finally { 
+                        this.isLoading = false; 
+                    }
                 },
                 // --- 資料同步 ---
                 // 以 no-cors POST 把目前狀態送回 API。
