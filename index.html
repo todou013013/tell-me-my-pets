@@ -376,7 +376,7 @@
                 return {
                     // --- 遠端 API ---
                     // Google Apps Script Web App URL（所有讀寫都走此端點）
-                    scriptUrl: 'https://script.google.com/macros/s/AKfycbyDx23ATfZXIg9ett6b1EoLmBUbhWnO0K1K6zlctuKlyFw5enH6pZVK0aLJhZeCGB8mgg/exec', 
+                    scriptUrl: 'https://script.google.com/macros/s/AKfycbwMmS7GytyeKmY3Zl96Oc_Z9QXrgneK_0CC_pM334PBRn6s6HFFgZB4_rSFEC4jnzLCig/exec', 
                     // --- 介面狀態 ---
                     currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
                     isLoading: false,   // 非同步期間禁用部分按鈕
@@ -518,6 +518,7 @@
                             ...t,
                             species: String(t.species || t.speceis || '').trim(),
                             category: String(t.category || '').trim(),
+                            category_rank: this.safeNum(t.category_rank, 999),
                             name: String(t.name || '').trim(),
                             color: t.color || '#3c3c3c',
                             subjective_rank: this.safeNum(t.subjective_rank ?? t.subject_rank, 1),
@@ -526,19 +527,30 @@
                         }));
 
                         // 👉 3. 這是剛剛新增的全局排序邏輯 (依稀有度排序)
+                        // 👉 將原本的 this.tags.sort 替換成這個「雙重排序」版本
                         this.tags.sort((a, b) => {
-                            // 將 NA 視為最低優先級 (給一個很大的數字 999)，其他的則取其 color_rank 數字
-                            const rankA = a.color_rank === 'NA' ? 999 : Number(a.color_rank);
-                            const rankB = b.color_rank === 'NA' ? 999 : Number(b.color_rank);
+                            // 先取得兩者的分類編號 (沒填預設給 999)
+                            const catRankA = this.safeNum(a.category_rank, 999);
+                            const catRankB = this.safeNum(b.category_rank, 999);
                             
-                            // 由小排到大 (0 最稀有會在最前面，再來是 1、2、3... 最後是 NA)
-                            return rankA - rankB; 
+                            // 1. 先比對 category_rank (優先度：1 -> 2 -> 3 ...)
+                            if (catRankA !== catRankB) {
+                                return catRankA - catRankB; 
+                            }
+                            
+                            // 2. 如果是同分類 (例如都是 1)，再比對 color_rank (稀有度：0 -> 1 -> 2 ...)
+                            const colorRankA = a.color_rank === 'NA' ? 999 : Number(a.color_rank);
+                            const colorRankB = b.color_rank === 'NA' ? 999 : Number(b.color_rank);
+                            return colorRankA - colorRankB; 
                         });
 
                         // 👉 4. 這裡是你原本的其他資料讀取
                         this.ownerList = data.owners || [];
                         this.records = (data.records || []).map(r => ({ ...r, tags: this.parseTags(r.tags) }));
                         this.breedingQueue = (data.breeding || []).map(b => ({ ...b, remainingTime: Math.max(0, Number(b.end) - Date.now()), pADone: b.pADone === true || b.pADone === "TRUE", pBDone: b.pBDone === true || b.pBDone === "TRUE" }));
+                        // 在讀取完 breedingQueue 之後加上這兩行
+                        this.pets.forEach(p => p.tags = this.sortTagsArray(p.tags));
+                        this.records.forEach(r => r.tags = this.sortTagsArray(r.tags));
                     } catch (e) { 
                         console.error(e); 
                     } finally { 
@@ -621,6 +633,18 @@
                     const next = candidates.find(t => t.color_rank !== 'NA' && this.safeNum(t.color_rank, 3) === nextRank);
                     if (next) return next;
                     return candidates.find(t => t.color_rank !== 'NA' && this.safeNum(t.color_rank, 3) === 3) || null;
+                },
+                // 👉 新增這個排序方法
+                // 👉 替換成這個極簡版的 sortTagsArray
+                sortTagsArray(tags) {
+                    return tags.sort((a, b) => {
+                        // 直接去 this.tags (已經完美排序過的大表) 裡面找這個詞條排在第幾位
+                        const indexA = this.tags.findIndex(t => t.name === a || t.name === a.replace(/^無/, ''));
+                        const indexB = this.tags.findIndex(t => t.name === b || t.name === b.replace(/^無/, ''));
+                        
+                        // 誰在系統大表裡的位置越前面 (index 越小)，誰就排在前面！
+                        return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
+                    });
                 },
                 applyRankDegradation(rows, candidates, category) {
                     if (category === '種類') return rows;
@@ -1438,7 +1462,7 @@
                     this.pets.push({ 
                         id: Date.now().toString() + Math.floor(Math.random()*10), 
                         owner: this.form.owner, name: resolvedName, rarity: derivedRarity, 
-                        tags: [...this.form.selectedTags], species: this.formSpecies, 
+                        tags: this.sortTagsArray([...this.form.selectedTags]), species: this.formSpecies, 
                         remaining: (derivedRarity==='普通'?2:derivedRarity==='典藏'?3:4), 
                         gender: this.form.gender, status: 'active', type: this.form.type, 
                         analyze: this.form.analyze, source: this.form.source,
@@ -1461,7 +1485,7 @@
                         })) return alert("種類類別必填！");
                         const catCount = Object.keys(this.groupedTagsBySpecies(this.resultSpecies)).length;
                         if(this.singleChild.tags.length < catCount) return alert("標籤分類必選！");
-                        let fTags = this.singleChild.tags.filter(t => !t.startsWith('無'));
+                        let fTags = this.sortTagsArray(this.singleChild.tags.filter(t => !t.startsWith('無')));
                         const resolvedChildName = this.getAutoIndexedName(p.owner, this.singleChild.name || "未命名", fTags, this.singleChild.gender);
                         const fatherId = String(p.gender==='公' ? p.id : other.id);
                         const motherId = String(p.gender==='母' ? p.id : other.id);
@@ -1558,6 +1582,7 @@
                     p.name = String(p.name || '').trim();
                     if (!p.name) return alert("名稱不可空白！");
                     if (p.editType) p.type = p.editType; // 在按下儲存時，才真正更新分類
+                    p.tags = this.sortTagsArray(p.tags);
                     p.rarity = this.getRarityFromTags(p.tags);
                     p.isEditing = false;
                     this.sync(true);
