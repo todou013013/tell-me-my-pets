@@ -1,0 +1,1559 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>育寵配配配</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        :root { --bg: #f4f7f6; --primary: #5d5fef; --success: #2ecc71; --danger: #e74c3c; --card: #ffffff; --male: #3498db; --female: #e91e63; --tag-dark: #3c3c3c; --breeding: #f1c40f; --match-btn: #8FFFFD; --premium: #ffd700; }
+        body { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; background: var(--bg); padding: 20px; color: #333; line-height: 1.6; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .nav-tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+        .tab-btn { padding: 10px 15px; border-radius: 10px; border: none; cursor: pointer; background: #ddd; font-weight: bold; transition: 0.3s; }
+        .tab-btn.active { background: var(--primary) !important; color: white !important; }
+        .card { background: var(--card); padding: 20px; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; position: relative; }
+        .input-group { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; align-items: center; }
+        input, select, button { padding: 10px 15px; border: 1.5px solid #e1e4e8; border-radius: 10px; font-size: 14px; }
+        .pet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+        .tag-pill { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; margin: 0 4px 4px 0; color: inherit !important; font-size: 10px; background-color: var(--tag-dark); text-shadow: 1px 1px 2px rgba(0,0,0,0.15); }
+        .gender-m { color: var(--male) !important; font-weight: bold; cursor: pointer; }
+        .gender-f { color: var(--female) !important; font-weight: bold; cursor: pointer; }
+        .prob-badge { font-size: 9px; background: rgba(0,0,0,0.1); padding: 1px 4px; border-radius: 4px; margin-left: 4px; color: #444; }
+        .best-embryo-border { border: 2px solid var(--premium) !important; }
+        .embryo-tag { position: absolute; top: -12px; right: 15px; background: var(--premium); color: #333; font-size: 10px; padding: 2px 10px; border-radius: 20px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .breed-pair-card { display: flex; align-items: stretch; justify-content: space-between; padding: 15px; background: white; border-radius: 16px; margin-bottom: 15px; border-left: 10px solid var(--breeding); border: 1px solid #eee; }
+        .breed-pet-side { flex: 1.2; padding: 12px; background: #fdfdfd; border-radius: 12px; border: 1px solid #f0f0f0; }
+        .breed-center { flex: 0.6; display: flex; flex-direction: column; align-items: center; justify-content: center; border-left: 1px dashed #ddd; border-right: 1px dashed #ddd; margin: 0 10px; }
+        .timer-display { font-family: monospace; font-size: 22px; font-weight: bold; color: var(--danger); }
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 9999; backdrop-filter: blur(5px); }
+        .category-block { background: #f8f9fa; padding: 12px; border-radius: 12px; margin-top: 10px; border-left: 5px solid var(--primary); }
+        .reg-category-title { color: #555; font-size: 12px; font-weight: bold; background: #eee; padding: 2px 8px; border-radius: 4px; display: block; margin-bottom: 5px; }
+        .btn-match { background-color: var(--match-btn) !important; color: #333 !important; border: none; font-weight: bold; width: 100%; padding: 10px; border-radius: 10px; cursor: pointer; margin-top: 10px; }
+        .required-star { color: var(--danger); margin-left: 2px; }
+    </style>
+</head>
+<body>
+    <div id="app" class="container">
+        <header class="card" style="display: flex; justify-content: space-between; align-items: center;">
+            <h1>🐾 育寵配配配 </h1>
+            <div style="display: flex; gap: 10px;">
+                <button @click="fetchData" :disabled="isLoading">🔄 同步數據</button>
+                <button @click="weeklyReset" style="background:var(--danger); color:white;">⏳ 每週刷新</button>
+            </div>
+        </header>
+
+        <div class="nav-tabs">
+            <button class="tab-btn" :class="{active: currentTab==='main'}" @click="currentTab='main'">❤️ 好胚</button>
+            <button class="tab-btn" :class="{active: currentTab==='pu'}" @click="currentTab='pu'">🩵 普普</button>
+            <button class="tab-btn" :class="{active: currentTab==='breeding'}" @click="currentTab='breeding'">🥚 繁育中 ({{ breedingQueue.length }})</button>
+            <button class="tab-btn" :class="{active: currentTab==='analysis'}" @click="currentTab='analysis'">📊 數據分析</button>
+        </div>
+
+        <!-- 寵物列表 -->
+        <div v-if="currentTab === 'main' || currentTab === 'pu'">
+            <!-- 多重篩選區塊 -->
+            <div class="card" style="background: #eef2ff; display: flex; flex-direction: column; gap: 10px;">
+                <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                    <strong>🔍 基本篩選：</strong>
+                    <select v-model="filterOwner"><option value="ALL">所有角色</option><option v-for="o in ownerList" :value="o">{{o}}</option></select>
+                    <select v-model="filterRarity"><option value="ALL">所有稀有度</option><option v-for="r in ['普通','典藏','典藏珍']" :value="r">{{r}}</option></select>
+                    
+                    <!-- 👉 新增：展開/收起按鈕 -->
+                    <button @click="isFilterExpanded = !isFilterExpanded" style="font-size:12px; padding: 6px 12px; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: bold;">
+                        {{ isFilterExpanded ? '🔼 收起進階詞條' : '🔽 展開進階詞條' }}
+                        <!-- 貼心小功能：如果收起時有勾選詞條，顯示數字提醒 -->
+                        <span v-if="selectedFilterTags.length > 0" style="background: white; color: var(--primary); padding: 1px 6px; border-radius: 10px; margin-left: 6px; font-size: 10px;">已選 {{ selectedFilterTags.length }}</span>
+                    </button>
+
+                    <!-- 清除按鈕稍微美化一下圓角 -->
+                    <button v-if="selectedFilterTags.length > 0" @click="selectedFilterTags = []" style="font-size:12px; padding: 6px 12px; background: var(--danger); color: white; border: none; border-radius: 8px;">✖ 清除條件</button>
+                </div>
+                
+                <!-- 👉 新增：利用 v-show 控制這整個區塊的顯示與隱藏 -->
+                <div v-show="isFilterExpanded" style="border-top: 1px dashed #ccc; padding-top: 10px;">
+                    <strong>🏷️ 詞條多重篩選 <span style="font-size: 11px; color: #666;">(勾選越多越嚴格，需同時符合)</span>：</strong>
+                    <div v-for="(group, cat) in allTagsByCategory" :key="cat" style="margin-top: 8px; display: flex; align-items: flex-start;">
+                        <span class="reg-category-title" style="min-width: 50px; text-align: center; margin-right: 10px;">{{ cat }}</span>
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                            <label v-for="tag in group" :key="tag.name" style="font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+                                <input type="checkbox" :value="tag.name" v-model="selectedFilterTags">
+                                <span class="tag-pill" :style="{...getTagStyle(tag.name), fontSize:'10px', padding:'4px 8px', margin: 0}">{{ tag.name }}</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- 手動登記：預設 analyze = false -->
+            <!-- 手動登記：預設 analyze = false -->
+            <div class="card" v-if="currentTab === 'main' || currentTab === 'pu'">
+                <strong style="color:var(--success);">➕ 手動登記新成員</strong>
+                <div class="input-group" style="margin-top:10px;">
+                    <select v-model="formSpecies"><option value="">選擇物種 (Species)</option><option v-for="s in speciesList" :value="s">{{s}}</option></select>
+                    <select v-model="form.owner"><option value="">持有者</option><option v-for="o in ownerList" :value="o">{{o}}</option></select>
+                    <input v-model="form.name" placeholder="名稱">
+                    <select v-model="form.type"><option v-for="t in ['good','normal','bad']" :value="t">{{ t === 'good' ? '❤️ 好胚' : t === 'normal' ? '🩵 普普' : '🖤 爛爛' }}</option></select>
+                    <select v-model="form.gender"><option value="公">♂️ 公</option><option value="母">♀️ 母</option></select>
+                    <select v-model="form.source"><option value="wild">野外/其他</option><option value="breed">繁育/子嗣</option></select>
+                </div>
+                <div v-if="formSpecies" v-for="(group, cat) in groupedTagsBySpecies(formSpecies)" :key="cat" class="category-block">
+                    <span class="reg-category-title">{{ cat }}</span>
+                    <label v-for="tag in group" :key="tag.name" style="margin-right:15px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+                        <input type="checkbox" :checked="form.selectedTags.includes(tag.name)" @change="toggleFormTag(cat, tag.name)">
+                        <span class="tag-pill" :style="{...getTagStyle(tag.name), fontSize:'10px', padding:'4px 8px'}">{{ tag.name }}</span>
+                    </label>
+                </div>
+                <button @click="addPet" style="width:100%; background:var(--success); color:white; margin-top:10px;">✅ 登記存檔</button>
+            </div>
+
+            <div class="pet-grid">
+                <div v-for="pet in sortedPets" :key="pet.id" class="card" :style="{borderTop: '6px solid ' + (pet.gender==='公'?'#3498db':'#e91e63')}">
+                    
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                        <div>
+                            <h3 style="margin:0;">[{{ getRarityFromTags(pet.tags) }}] {{ pet.name }} 
+                                <span @click="toggleGender(pet)" :class="pet.gender==='公'?'gender-m':'gender-f'">{{ pet.gender==='公'?'♂':'♀' }}</span>
+                            </h3>
+                            <p style="font-size:11px; color:#666; margin:5px 0;">持有：{{ pet.owner }}</p>
+                        </div>
+                        <button @click="startEdit(pet)" style="font-size:11px; background:#eee;">✏️</button>
+                    </div>
+                    
+                    <div v-if="!pet.isEditing">
+                        <div v-for="t in pet.tags" :key="t" class="tag-pill" :style="{...getTagStyle(t), fontSize:'10px'}">
+                            {{ t }} 
+                        </div>
+                    </div>
+                    
+                    <div v-else class="category-block">
+                        <strong>編輯模式</strong>
+                        <div style="margin-top:8px;">名稱：<input v-model.trim="pet.name" placeholder="名稱" style="width:100%; margin-top:4px;"></div>
+                        <div style="margin-top:8px;">分類：<select v-model="pet.editType"><option value="good">❤️ 好胚</option><option value="normal">🩵 普普</option><option value="bad">🖤 爛爛</option></select></div>
+                        <div v-for="(group, cat) in groupedTagsBySpecies(getSpeciesOfPet(pet))" :key="cat" style="margin-top:5px;">
+                            <span class="reg-category-title">{{ cat }}</span>
+                            <label v-for="tag in group" :key="tag.name" style="margin-right:8px; font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+                                <input type="checkbox" :checked="pet.tags.includes(tag.name)" @change="toggleEditTag(pet, cat, tag.name)">
+                                <span class="tag-pill" :style="{...getTagStyle(tag.name), fontSize:'10px', padding:'4px 8px'}">{{ tag.name }}</span>
+                            </label>
+                        </div>
+                        <button @click="saveEdit(pet)" style="width:100%; margin-top:10px; background:var(--success); color:white;">💾 儲存修改</button>
+                        <button @click="deletePet(pet.id)" style="width:100%; margin-top:5px; background:var(--danger); color:white;">🗑️ 刪除</button>
+                    </div>
+                    
+                    <button v-if="(pet.type==='good' || pet.type==='normal') && !pet.isEditing && pet.remaining > 0" @click="openMatchPicker(pet)" class="btn-match">🔍 找配對 (剩餘 {{pet.remaining}})</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="currentTab === 'breeding'">
+            <div v-for="item in breedingQueue" :key="item.id" class="breed-pair-card">
+                <div v-for="side in ['pA', 'pB']" :key="side" class="breed-pet-side">
+                    <div style="text-align:center; border-bottom:1px solid #eee; margin-bottom:8px; padding-bottom:5px;">
+                        <strong>{{ getPet(item[side]).owner }}</strong>
+                    </div>
+                    <div style="margin-bottom:8px;">
+                        <strong>[{{ getPet(item[side]).rarity }}] {{ getPet(item[side]).name }}</strong> 
+                        <span :class="getPet(item[side]).gender==='公'?'gender-m':'gender-f'">{{ getPet(item[side]).gender==='公'?'♂':'♀' }}</span>
+                    </div>
+                    <div v-for="t in getPet(item[side]).tags" :key="t" class="tag-pill" :style="{...getTagStyle(t), fontSize:'9px'}">{{ t }}</div>
+                    <div style="margin-top:15px; text-align:center;">
+                        <button v-if="item.remainingTime <= 0 && !item[side+'Done']" 
+                                :disabled="isLoading"
+                                style="padding:8px 15px; border:2px solid var(--danger); border-radius:8px; cursor:pointer; background:#fff5f5; color:var(--danger); font-weight:bold;" 
+                                @click="openSingleResultModal(item, side)">
+                            {{ isLoading ? '資料存檔中⏳' : '🎁 登記結果' }}
+                        </button>
+                        <span v-else-if="item[side+'Done']" style="color:var(--success); font-weight:bold; font-size:14px;">✅ 已歸位</span>
+                    </div>
+                </div>
+                <div class="breed-center">
+                    <div v-if="item.remainingTime > 0" class="timer-display">{{ formatTime(item.remainingTime) }}</div>
+                    <div v-else style="font-size:32px;">💖</div>
+                    <button v-if="item.remainingTime > 0" @click="forceEnd(item)" style="font-size:10px; color:#999; border:none; background:none; cursor:pointer; margin-top:10px;">🛑 強制結束</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="currentTab === 'analysis'">
+            <div class="card">
+                <h3>📊 繁育大數據分析報告 (僅計入有效子嗣)</h3>
+                <p style="font-size:13px; color:#666;">{{ ruleInference }}</p>
+                <div class="card" style="background:#eef2ff; padding:12px; margin-top:10px;">
+                    <strong>🔎 分析篩選：</strong>
+                    <select v-model="reportOwnerFilter" style="margin-left:8px;">
+                        <option value="ALL">所有持有者</option>
+                        <option v-for="o in ownerList" :key="o" :value="o">{{ o }}</option>
+                    </select>
+                    <select v-if="reportOwnerFilter !== 'ALL'" v-model="reportTypeFilter" style="margin-left:8px;">
+                        <option value="ALL">全部胚子類型</option>
+                        <option value="good">❤️ 好胚</option>
+                        <option value="normal">🩵 普普</option>
+                    </select>
+                </div>
+                <div class="category-block" style="margin-bottom:15px;">
+                    <strong>🧪 血緣規律對比（僅分析，不計分）</strong>
+                    <div style="margin-top:6px; font-size:12px; color:#555;">近親組配對數：{{ consanguinitySummary.closeCount }}</div>
+                    <div style="font-size:12px; color:#555;">非近親組配對數：{{ consanguinitySummary.nonCloseCount }}</div>
+                    <div style="font-size:12px; color:#555;">近親組 Rank 0/1 平均預期：{{ consanguinitySummary.closeAvg }}%</div>
+                    <div style="font-size:12px; color:#555;">非近親組 Rank 0/1 平均預期：{{ consanguinitySummary.nonCloseAvg }}%</div>
+                    <div style="margin-top:6px; font-size:12px; color:#222; font-weight:bold;">結論：{{ consanguinitySummary.conclusion }}</div>
+                </div>
+                <div class="pet-grid" :style="{gridTemplateColumns: analysisGridColumns}">
+                    <div v-for="o in analysisOwners" :key="o" class="card" style="padding:15px; border-left: 5px solid var(--primary);">
+                        <strong style="font-size: 1.1em;">{{ o }}</strong>
+                        <p style="margin: 5px 0;">✨ 有效繁育子嗣：{{ getAnalyzePetCount(o) }} / 50</p>
+                        <progress :value="getAnalyzePetCount(o)" max="50" style="width:100%; height:10px;"></progress>
+                        
+                        <div v-if="getAnalyzePetCount(o) > 0" style="margin-top:10px;">
+                            <div style="font-size:12px; color:#666; margin-bottom:5px;">🧬 子嗣遺傳傾向 (Top 5)：</div>
+                            <div v-for="tag in getAnalyzeGeneticTags(o)" :key="tag" class="tag-pill" :style="{...getTagStyle(tag), fontSize:'9px'}">{{ tag }}</div>
+                        </div>
+                        <div style="margin-top:10px; font-size:12px; color:#555; border-top:1px dashed #ccc; padding-top:5px;">
+                            🏆 持有者頂級胚子：<br>
+                            <div v-for="(p, idx) in getTopEmbryos(o)" :key="p.id" style="margin-top:6px; background:#f9f9f9; border:1px solid #eee; border-radius:8px; padding:8px; font-weight:600;">
+                                👑 #{{ idx + 1 }} {{ p.name }}
+                                <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px;">
+                                    <span v-for="tag in getTopEmbryoTags(p)" :key="tag.name" class="tag-pill" :style="{...getTagStyle(tag.name), fontSize:'9px'}">
+                                        {{ tag.name }} #{{ tag.rank }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="margin-top:10px; font-size:12px; color:#555; border-top:1px dashed #ccc; padding-top:8px;">
+                            🔍 個別寵物最高遺傳機率 (Top 1, 依性別)：<br>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-top:5px;">
+                                <div style="background:#f9f9f9; border:1px solid #eee; padding:6px; border-radius:6px; font-size:11px;">
+                                    <div style="font-weight:bold; color:#3498db; margin-bottom:4px;">♂ 公</div>
+                                    <div v-if="getOwnerTop1ByGender(o, '公')" style="display:flex; justify-content:space-between;">
+                                        <strong>{{ getOwnerTop1ByGender(o, '公').name }}</strong>
+                                        <span style="color:var(--primary); font-weight:bold;">{{ getOwnerTop1ByGender(o, '公').bestTag }}</span>
+                                    </div>
+                                    <div v-else style="color:#999;">尚無數據</div>
+                                </div>
+                                <div style="background:#f9f9f9; border:1px solid #eee; padding:6px; border-radius:6px; font-size:11px;">
+                                    <div style="font-weight:bold; color:#e91e63; margin-bottom:4px;">♀ 母</div>
+                                    <div v-if="getOwnerTop1ByGender(o, '母')" style="display:flex; justify-content:space-between;">
+                                        <strong>{{ getOwnerTop1ByGender(o, '母').name }}</strong>
+                                        <span style="color:var(--primary); font-weight:bold;">{{ getOwnerTop1ByGender(o, '母').bestTag }}</span>
+                                    </div>
+                                    <div v-else style="color:#999;">尚無數據</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-if="reportOwnerFilter !== 'ALL'" style="margin-top:10px; font-size:12px; color:#555; border-top:1px dashed #ccc; padding-top:8px;">
+                            📘 單體歷史遺傳報告（Option A）：<br>
+                            <div v-for="item in getSinglePetHistoricalReport(o)" :key="item.id" style="margin-top:6px; background:#fafafa; border:1px solid #eee; border-radius:8px; padding:6px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                    <strong>{{ item.name }}</strong>
+                                    <span style="font-size:11px; color:#666;">分數 {{ item.score.toFixed(2) }}</span>
+                                </div>
+                                <span v-for="tp in item.tagProbs" :key="tp.tag" class="tag-pill" :style="{...getTagStyle(tp.tag), marginRight:'4px', fontSize:'9px'}">
+                                    {{ tp.tag }} <span class="prob-badge">{{ tp.prob }}%</span>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 結果登記彈窗：analyze 預設為 true -->
+        <div v-if="showResultModal" class="modal" @click.self="showResultModal = false">
+            <div class="card" style="width: 500px; max-height: 85vh; overflow-y: auto;">
+                <div style="display:flex; justify-content:space-between;"><h3>🎉 登記：{{ resultTarget.sideName }}</h3><button @click="showResultModal = false">×</button></div>
+                <div class="category-block">
+                    <div style="margin-bottom:10px;">
+                        分類：<select v-model="singleChild.type"><option value="good">❤️ 好胚</option><option value="normal">🩵 普普</option><option value="bad">🖤 爛爛</option></select>
+                    </div>
+                    
+                    <div v-if="singleChild.type === 'good' || singleChild.type === 'normal'">
+                        <div style="margin-top:10px;">名稱：<span class="required-star">*</span><br><input v-model="singleChild.name" placeholder="子嗣名稱" @blur="checkAutoName"></div>
+                        <div style="margin-top:10px;">性別：<span class="required-star">*</span><br>
+                            <select v-model="singleChild.gender">
+                                <option value="">請選擇性別</option><option value="公">♂️ 公</option><option value="母">♀️ 母</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style="margin-top:15px;">
+                        <strong>標籤設定 <span class="required-star">(每類必選)</span></strong>
+                        <div v-for="(group, cat) in groupedTagsWithNone(resultSpecies)" :key="cat" style="margin-top:8px; border-bottom:1px solid #eee; padding-bottom:5px;">
+                            <span class="reg-category-title">{{ cat }}</span>
+                            <label v-for="tag in group" :key="tag.name" style="margin-right:8px; font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+                                <input type="checkbox" :checked="singleChild.tags.includes(tag.name)" @change="toggleSingleChildTag(cat, tag.name)">
+                                <span class="tag-pill" :style="{...getTagStyle(tag.name), fontSize:'10px', padding:'4px 8px'}">{{ tag.name }}</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <button @click="submitSingleResult" style="width:100%; margin-top:20px; background:var(--primary); color:white;">✅ 確認歸位並納入分析</button>
+            </div>
+        </div>
+
+        <!-- 找配對彈窗：雙親加成與排序顯示 -->
+        <div v-if="showMatchPicker" class="modal" @click.self="showMatchPicker = false">
+            <div class="card" style="width: 85%; max-width: 900px; max-height: 90vh; overflow-y: auto;">
+                <div style="display:flex; justify-content:space-between;">
+                    <h3>🎯 為【{{ matchingTarget ? matchingTarget.name : '' }}】尋找最優配對</h3>
+                    <button @click="showMatchPicker = false">×</button>
+                </div>
+                <div v-if="matchingTarget" class="category-block" style="background:#fff7ef; border-left-color:#f39c12;">
+                    <strong>此寵物目前標籤：</strong>
+                    <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px;">
+                        <span v-for="t in matchingTarget.tags" :key="t" class="tag-pill" :style="{...getTagStyle(t), fontSize:'10px'}">{{ t }}</span>
+                        <span v-if="!(matchingTarget.tags || []).length" style="font-size:11px; color:#666;">無標籤</span>
+                    </div>
+                </div>
+                <div class="category-block">
+                    <strong>1. 勾選您的理想目標標籤：</strong><br>
+                    <div v-if="matchingTarget" v-for="(group, cat) in groupedTargetTagsBySpecies(getSpeciesOfPet(matchingTarget))" :key="cat" style="margin-top:10px;">
+                        <div style="margin-bottom:6px;"><span class="reg-category-title">{{ cat }}</span></div>
+                        <label v-for="tag in group" :key="tag.name" style="margin-right:15px; font-size:12px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+                            <input type="checkbox" :value="tag.name" v-model="desiredTagsDraft" :disabled="matchSelectionConfirmed">
+                            <span class="tag-pill" :style="{...getTagStyle(tag.name), fontSize:'10px', padding:'4px 8px'}">{{ tag.name }}</span>
+                        </label>
+                    </div>
+                    <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+                        <button v-if="!matchSelectionConfirmed" @click="confirmDesiredTags" style="background:var(--primary); color:white; border:none;">✅ 確認目標並計算</button>
+                        <button v-else @click="editDesiredTags" style="background:#f39c12; color:white; border:none;">✏️ 編輯目標</button>
+                    </div>
+                    <div v-if="matchSelectionConfirmed" style="margin-top:8px; font-size:12px; color:#555;">
+                        已確認目標：{{ desiredTags.length ? desiredTags.join('、') : '未選擇' }}
+                    </div>
+                    <div v-if="matchDiagnostics" style="margin-top:10px; font-size:12px; color:#666;">
+                        目標物種：{{ matchDiagnostics.targetSpecies || '未辨識' }} ｜ 異性候選：{{ matchDiagnostics.oppositeGender }} ｜ 可配對：{{ matchDiagnostics.ready }} ｜ 同物種候選：{{ matchDiagnostics.speciesMatched }}
+                    </div>
+                </div>
+                <div v-if="matchSelectionConfirmed && desiredTags.length > 0" class="pet-grid" style="margin-top:20px;">
+                    <div v-for="res in matchResults" :key="res.pet.id" class="card" @click="confirmPairing(res.pet)" style="border: 2px solid var(--success); cursor:pointer;">
+                        <div style="display:flex; justify-content:space-between;">
+                            <h4>{{ res.pet.name }} ({{ res.pet.owner }})</h4>
+                            <span :class="res.pet.gender==='公'?'gender-m':'gender-f'">{{ res.pet.gender }}</span>
+                        </div>
+                        <div>
+                            <span v-for="t in res.pet.tags" :key="t" class="tag-pill" :style="{...getTagStyle(t), fontSize:'9px'}">
+                                {{ t }} <span class="prob-badge">{{ getMatchTagProb(res, t) }}%</span>
+                            </span>
+                        </div>
+                        <div style="font-size:11px; margin-top:8px; padding:5px; background:#f0f7ff; border-radius:5px;">
+                            <strong>🧬 遺傳預覽：</strong>
+                            <div style="margin-top:4px; display:flex; flex-wrap:wrap; gap:4px;">
+                                <template v-for="pt in res.predictedTopTags" :key="pt.name">
+                                    <span v-if="isTagOwnedByEither(pt.name, matchingTarget, res.pet)" class="tag-pill" :style="{...getTagStyle(pt.name), fontSize:'9px'}">
+                                        {{ pt.name }} <span class="prob-badge">{{ Math.round(pt.prob) }}%</span>
+                                    </span>
+                                </template>
+                                <span v-if="!res.predictedTopTags.length" style="font-size:11px; color:#666;">雙方無可預覽詞條</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:5px;">
+                                <strong v-if="matchingTarget && matchingTarget.type !== 'normal'" style="color:var(--primary);">推薦分數：{{ res.matchScore.toFixed(0) }}</strong>
+                                <span v-else style="font-size:11px; color:#666;">符合目標詞條</span>
+                                <span v-if="res.doubleTagBonus.length > 0" style="color:var(--success); font-weight:bold;">✨ 雙親加成：{{ res.doubleTagBonus.join('、') }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div v-if="!matchSelectionConfirmed" style="margin-top:16px; font-size:12px; color:#666;">請先勾選目標詞條並按「確認目標並計算」。</div>
+                <div v-else-if="desiredTags.length === 0" style="margin-top:16px; font-size:12px; color:#666;">尚未確認任何目標詞條，請按「編輯目標」後勾選並重新確認。</div>
+                <div v-else-if="matchResults.length === 0" style="margin-top:16px; font-size:12px; color:#666;">目前沒有符合所選目標詞條的候選寵物。</div>
+                <div v-if="matchSelectionConfirmed && desiredTags.length > 0 && rejectedMatchCandidates.length > 0" class="category-block" style="margin-top:16px; background:#fff8f3; border-left-color:#e67e22;">
+                    <strong>候選排除原因：</strong>
+                    <div v-for="item in rejectedMatchCandidates.slice(0, 10)" :key="item.pet.id" style="margin-top:8px; font-size:12px; color:#555;">
+                        {{ item.pet.name }} ({{ item.pet.owner }})：{{ item.reason }}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================
+        // Vue 3 應用程式 — 寵物科學繁育系統 V11.3
+        // 功能：寵物管理、繁育佇列、詞條遺傳分析、配對推薦（串接 GAS API）
+        // ============================================================
+        const { createApp } = Vue;
+        createApp({
+            data() {
+                return {
+                    // --- 遠端 API ---
+                    // Google Apps Script Web App URL（所有讀寫都走此端點）
+                    scriptUrl: 'https://script.google.com/macros/s/AKfycbyDx23ATfZXIg9ett6b1EoLmBUbhWnO0K1K6zlctuKlyFw5enH6pZVK0aLJhZeCGB8mgg/exec', 
+                    // --- 介面狀態 ---
+                    currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
+                    isLoading: false,   // 非同步期間禁用部分按鈕
+                    filterOwner: 'ALL', filterRarity: 'ALL', selectedFilterTags: [], isFilterExpanded: false, // 主列表篩選條件
+
+                    // --- 核心資料（由 API 讀取） ---
+                    pets: [],        // 寵物資料
+                    tags: [],        // 詞條主檔：{ name, species, category, color, ... }
+                    ownerList: [],   // 持有者清單
+                    breedingQueue: [],// 繁育佇列（含倒數）
+                    records: [],     // 歷史子嗣紀錄（機率/統計依據）
+
+                    // --- 配對彈窗狀態 ---
+                    showMatchPicker: false,  // 控制配對彈窗顯示
+                    matchingTarget: null,    // 目前要找配對的目標寵
+                    desiredTags: [],         // 使用者希望子嗣命中的目標詞條
+                    desiredTagsDraft: [],    // 配對視窗編輯中的目標詞條（待確認）
+                    matchSelectionConfirmed: false, // 目標詞條是否已確認
+                    matchResults: [],        // 候選配對清單（已評分與排序）
+                    matchDiagnostics: null,  // 配對候選池診斷資訊
+                    rejectedMatchCandidates: [], // 候選被排除原因
+
+                    // --- 子嗣結果彈窗狀態 ---
+                    showResultModal: false,
+                    resultTarget: { item: null, side: '', sideName: '' }, // 目前登記的是繁育配對哪一側
+                    singleChild: { name: '', type: 'good', gender: '', tags: [] }, // 子嗣登記表單
+
+                    // --- 手動登記表單 ---
+                    formSpecies: '', // 選擇物種後，決定可勾選的詞條分類
+                    form: { owner: '', name: '', type: 'good', gender: '公', selectedTags: [], source: 'wild', analyze: false },
+
+                    // 經驗統計切換門檻：樣本夠大時改用實際紀錄機率。
+                    // 若要提前/延後從 bias 轉到統計，改這個值。
+                    empiricalMinRecords: 50,
+
+                    // 分析頁篩選條件
+                    reportOwnerFilter: 'ALL',
+                    reportTypeFilter: 'ALL'
+                }
+            },
+            // ============================================================
+            // 計算屬性（computed）
+            // ============================================================
+            computed: {
+                // 從詞條主檔推導物種清單（去重）
+                speciesList() { return [...new Set(this.tags.map(t => t.species))].filter(String); },
+                uniqueAllTags() {
+                    return [...new Set(this.tags.map(t => t.name))].sort();
+                },
+                // 目前分頁顯示的寵物：先篩選再按胚子分數降序
+                sortedPets() {
+                    const tMap = { 'main': 'good', 'pu': 'normal' };
+                    return this.pets.filter(p => {
+                        const tabMatch = p.type === tMap[this.currentTab] && p.status === 'active';
+                        const ownerMatch = this.filterOwner === 'ALL' || p.owner === this.filterOwner;
+                        const rarityMatch = this.filterRarity === 'ALL' || this.getRarityFromTags(p.tags) === this.filterRarity;
+                        
+                        // 👉 新的多重篩選邏輯：如果沒有勾選任何詞條就全過，有勾選的話，寵物必須包含「所有」被勾選的詞條 (every)
+                        const tagMatch = this.selectedFilterTags.length === 0 || 
+                                        this.selectedFilterTags.every(filterTag => p.tags && p.tags.includes(filterTag));
+
+                        return tabMatch && ownerMatch && rarityMatch && tagMatch;
+                    }).sort((a,b) => this.getEmbryoScore(b) - this.getEmbryoScore(a));
+                },
+                // 結果彈窗中的物種（由 parent A 推導）
+                resultSpecies() { return this.resultTarget.item ? this.getSpeciesOfPet(this.getPet(this.resultTarget.item.pA)) : ""; },
+                // 將所有系統詞條依照分類 (category) 進行分組，供篩選器使用
+                allTagsByCategory() {
+                    const grouped = {};
+                    this.tags.forEach(t => {
+                        const cat = t.category || '未分類';
+                        if (!grouped[cat]) grouped[cat] = [];
+                        // 避免同名詞條重複出現
+                        if (!grouped[cat].some(x => x.name === t.name)) {
+                            grouped[cat].push(t);
+                        }
+                    });
+                    return grouped;
+                },
+                // 規則摘要文字（依歷史紀錄推導）
+                ruleInference() {
+                    const records = this.reportOwnerFilter === 'ALL'
+                        ? this.records
+                        : this.records.filter(r => String(r.owner || '') === String(this.reportOwnerFilter));
+                    if (records.length < 5) {
+                        return this.reportOwnerFilter === 'ALL'
+                            ? "數據收集中，至少需要 5 筆紀錄來推測規則。"
+                            : `選定持有者「${this.reportOwnerFilter}」的數據收集中，至少需要 5 筆紀錄來推測規則。`;
+                    }
+                    const avgInherit = (records.reduce((acc, r) => acc + (r.tags?r.tags.length:0), 0) / records.length).toFixed(1);
+                    return `當前規律：子嗣平均繼承 ${avgInherit} 個詞條，非「種類」類別含 15% 顏色降級流向下一階。`;
+                },
+                analysisGridColumns() {
+                    return this.reportOwnerFilter !== 'ALL'
+                        ? '1fr'
+                        : 'repeat(auto-fill, minmax(320px, 1fr))';
+                },
+
+                consanguinitySummary() {
+                    return this.getConsanguinitySummary();
+                },
+
+                analysisOwners() {
+                    const list = this.ownerList && this.ownerList.length
+                        ? this.ownerList
+                        : [...new Set(this.pets.map(p => p.owner).filter(Boolean))];
+                    if (this.reportOwnerFilter === 'ALL') return list;
+                    return list.filter(o => o === this.reportOwnerFilter);
+                }
+            },
+            // ============================================================
+            // 方法（methods）
+            // ============================================================
+            methods: {
+                // --- 資料讀取 ---
+                // 從 GAS API 載入所有資料，並初始化前端狀態。
+                // 注意：Google Sheets 的 analyze 可能是字串 "TRUE"，這裡會轉成布林值。
+                async fetchData() {
+                    this.isLoading = true;
+                    try {
+                        const res = await fetch(this.scriptUrl);
+                        const data = await res.json();
+                        // ... (上面是 pets 的讀取，保持不變)
+
+                        // 這是原本讀取 tags 的程式碼
+                        this.tags = (data.tags || []).map(t => ({
+                            ...t,
+                            species: String(t.species || t.speceis || '').trim(),
+                            category: String(t.category || '').trim(),
+                            name: String(t.name || '').trim(),
+                            color: t.color || '#3c3c3c',
+                            subjective_rank: this.safeNum(t.subjective_rank ?? t.subject_rank, 1),
+                            color_rank: String(t.color_rank || '').toUpperCase() === 'NA' ? 'NA' : (t.color_rank !== undefined && t.color_rank !== '' ? Number(t.color_rank) : 3),
+                            bias: String(t.bias || '').trim()
+                        }));
+
+                        // 👉 請在這裡新增以下這段「全局排序」邏輯
+                        this.tags.sort((a, b) => {
+                            // 將 NA 視為最低優先級 (給一個很大的數字 999)，其他的則取其 color_rank 數字
+                            const rankA = a.color_rank === 'NA' ? 999 : Number(a.color_rank);
+                            const rankB = b.color_rank === 'NA' ? 999 : Number(b.color_rank);
+                            
+                            // 由小排到大 (0 最稀有會在最前面，再來是 1、2、3... 最後是 NA)
+                            return rankA - rankB; 
+                        });
+                        // 👈 新增結束
+
+                        // ... (下面保持不變)
+                        this.ownerList = data.owners || [];
+                        this.records = (data.records || []).map(r => ({ ...r, tags: this.parseTags(r.tags) }));
+                        this.breedingQueue = (data.breeding || []).map(b => ({ ...b, remainingTime: Math.max(0, Number(b.end) - Date.now()), pADone: b.pADone === true || b.pADone === "TRUE", pBDone: b.pBDone === true || b.pBDone === "TRUE" }));
+                    } catch (e) { console.error(e); } finally { this.isLoading = false; }
+                },
+                // --- 資料同步 ---
+                // 以 no-cors POST 把目前狀態送回 API。
+                // 若 isForce=true，2 秒後重新抓取一次確認寫入結果。
+                async sync(isForce = false) {
+                    this.isLoading = true;
+                    const dataToSync = this.pets.map(p => ({ 
+                        ...p, 
+                        species: p.species || this.getSpeciesOfPet(p),
+                        analyze: !!p.analyze 
+                    }));
+                    
+                    fetch(this.scriptUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'sync', pets: dataToSync, breeding: this.breedingQueue, records: this.records }) });
+                    
+                    setTimeout(() => {
+                        if(isForce) {
+                            this.fetchData();
+                        } else {
+                            this.isLoading = false;
+                        }
+                    }, 2000);
+                },
+                
+                // --- 規則引擎與機率計算 ---
+
+                safeNum(v, d = 0) {
+                    const n = Number(v);
+                    return Number.isFinite(n) ? n : d;
+                },
+                round2(n) {
+                    return Math.round(this.safeNum(n, 0) * 100) / 100;
+                },
+                parseTags(v) {
+                    if (Array.isArray(v)) return v.filter(Boolean).map(x => String(x).trim()).filter(Boolean);
+                    const s = String(v || '').trim();
+                    if (!s) return [];
+                    return s.split(',').map(x => x.trim()).filter(Boolean);
+                },
+                normalizeKey(v) {
+                    return String(v || '').trim();
+                },
+                toSet(arr) {
+                    const out = {};
+                    (arr || []).forEach(x => {
+                        const k = this.normalizeKey(x);
+                        if (k) out[k] = true;
+                    });
+                    return out;
+                },
+                unique(arr) {
+                    return [...new Set((arr || []).map(x => this.normalizeKey(x)).filter(Boolean))];
+                },
+                normalizeProbabilities(rows) {
+                    const total = rows.reduce((s, x) => s + this.safeNum(x.prob, 0), 0);
+                    if (total <= 0) {
+                        const u = rows.length ? 100 / rows.length : 0;
+                        rows.forEach(r => r.prob = u);
+                        return rows;
+                    }
+                    rows.forEach(r => r.prob = (this.safeNum(r.prob, 0) / total) * 100);
+                    return rows;
+                },
+                getTagsBySpeciesCategory(species) {
+                    const grouped = {};
+                    this.tags.filter(t => t.species === species).forEach(t => {
+                        if (!grouped[t.category]) grouped[t.category] = [];
+                        grouped[t.category].push(t);
+                    });
+                    return grouped;
+                },
+                getNextRankTag(candidates, current) {
+                    // 如果 color_rank 是 NA，不進行降等
+                    if (current.color_rank === 'NA') return null;
+                    const nextRank = this.safeNum(current.color_rank, 3) + 1;
+                    const next = candidates.find(t => t.color_rank !== 'NA' && this.safeNum(t.color_rank, 3) === nextRank);
+                    if (next) return next;
+                    return candidates.find(t => t.color_rank !== 'NA' && this.safeNum(t.color_rank, 3) === 3) || null;
+                },
+                applyRankDegradation(rows, candidates, category) {
+                    if (category === '種類') return rows;
+
+                    const byName = {};
+                    rows.forEach((r, i) => byName[r.name] = i);
+
+                    rows.forEach(r => {
+                        const cur = candidates.find(t => t.name === r.name);
+                        if (!cur || cur.color_rank === 'NA') return;  // 跳過 NA 的詞條
+                        const move = this.safeNum(r.prob, 0) * 0.15;
+                        if (move <= 0) return;
+
+                        const target = this.getNextRankTag(candidates, cur);
+                        if (!target || byName[target.name] === undefined || target.name === r.name) return;
+
+                        r.prob -= move;
+                        rows[byName[target.name]].prob += move;
+                    });
+
+                    return rows;
+                },
+                getBaseWeight(tag, inFather, inMother) {
+                    if (inFather && inMother) return 85;
+                    if (inFather || inMother) {
+                        const holder = inFather ? 'Father' : 'Mother';
+                        return String(tag.bias || '') === holder ? 65 : 35;
+                    }
+                    return 10;
+                },
+                getTagMetaMap(species) {
+                    const map = {};
+                    this.tags.filter(t => t.species === species).forEach(t => {
+                        map[t.name] = t;
+                    });
+                    return map;
+                },
+                getPairScopedRecords(species, father, mother, ownerFilter = '') {
+                    const fatherIds = this.toSet([father.id, father.name]);
+                    const motherIds = this.toSet([mother.id, mother.name]);
+
+                    return this.records.filter(r => {
+                        if (String(r.species || '') !== String(species || '')) return false;
+                        if (ownerFilter && String(r.owner || '') !== String(ownerFilter)) return false;
+                        const rf = String(r.father || '');
+                        const rm = String(r.mother || '');
+                        const direct = fatherIds[rf] && motherIds[rm];
+                        const reverse = fatherIds[rm] && motherIds[rf];
+                        return direct || reverse;
+                    });
+                },
+                getSpeciesScopedRecords(species, ownerFilter = '') {
+                    return this.records.filter(r => {
+                        if (String(r.species || '') !== String(species || '')) return false;
+                        if (ownerFilter && String(r.owner || '') !== String(ownerFilter)) return false;
+                        return true;
+                    });
+                },
+                getEmpiricalCategoryStats(species, category, candidates, father, mother, ownerContext = '') {
+                    // 取樣優先序：
+                    // 1) 同配對 + 同持有者
+                    // 2) 同物種 + 同持有者
+                    // 3) 同物種（全域）
+                    // 每層都必須 sample >= empiricalMinRecords 才啟用 empirical。
+                    const pairOwnerPool = this.getPairScopedRecords(species, father, mother, ownerContext);
+                    const speciesOwnerPool = this.getSpeciesScopedRecords(species, ownerContext);
+                    const speciesPool = this.getSpeciesScopedRecords(species);
+
+                    let sample = [];
+                    if (pairOwnerPool.length >= this.empiricalMinRecords) {
+                        sample = pairOwnerPool;
+                    } else if (speciesOwnerPool.length >= this.empiricalMinRecords) {
+                        sample = speciesOwnerPool;
+                    } else {
+                        sample = speciesPool;
+                    }
+
+                    if (sample.length < this.empiricalMinRecords) {
+                        return { useEmpirical: false, sampleCount: sample.length, probByTag: {} };
+                    }
+
+                    const metaMap = this.getTagMetaMap(species);
+                    const counts = {};
+                    (candidates || []).forEach(t => counts[t.name] = 0);
+
+                    sample.forEach(r => {
+                        const tags = this.parseTags(r.tags);
+                        tags.forEach(name => {
+                            const meta = metaMap[name];
+                            if (meta && meta.category === category && counts[name] !== undefined) {
+                                counts[name] += 1;
+                            }
+                        });
+                    });
+
+                    const probByTag = {};
+                    Object.keys(counts).forEach(name => {
+                        probByTag[name] = counts[name] / sample.length;
+                    });
+
+                    return { useEmpirical: true, sampleCount: sample.length, probByTag };
+                },
+                calculateInheritance(parentA, parentB, ownerContext = '') {
+                    if (!parentA || !parentB) return {};
+                    const father = parentA.gender === '公' ? parentA : parentB;
+                    const mother = parentA.gender === '母' ? parentA : parentB;
+                    if (!father || !mother) return {};
+
+                    const species = this.getSpeciesOfPet(father) || this.getSpeciesOfPet(mother);
+                    if (!species) return {};
+
+                    const grouped = this.getTagsBySpeciesCategory(species);
+                    const fatherSet = this.toSet(father.tags || []);
+                    const motherSet = this.toSet(mother.tags || []);
+                    const out = {};
+
+                    Object.keys(grouped).forEach(cat => {
+                        const candidates = grouped[cat];
+                        if (!candidates || !candidates.length) return;
+
+                        const empirical = this.getEmpiricalCategoryStats(species, cat, candidates, father, mother, ownerContext);
+
+                        let rows = candidates.map(tag => {
+                            const inFather = !!fatherSet[tag.name];
+                            const inMother = !!motherSet[tag.name];
+                            const w = empirical.useEmpirical
+                                ? this.safeNum(empirical.probByTag[tag.name], 0) * 100
+                                : this.getBaseWeight(tag, inFather, inMother);
+                            return {
+                                name: tag.name,
+                                category: cat,
+                                color_rank: tag.color_rank === 'NA' ? 'NA' : this.safeNum(tag.color_rank, 3),
+                                prob: w
+                            };
+                        });
+
+                        rows = this.normalizeProbabilities(rows);
+                        rows = this.applyRankDegradation(rows, candidates, cat);
+                        rows = this.normalizeProbabilities(rows);
+                        out[cat] = rows;
+                    });
+
+                    return out;
+                },
+                flattenInheritance(inh) {
+                    const all = [];
+                    Object.keys(inh || {}).forEach(cat => {
+                        (inh[cat] || []).forEach(g => all.push({ ...g }));
+                    });
+                    return all;
+                },
+                getTagFrequency() {
+                    const freq = {};
+                    this.pets.forEach(p => (p.tags || []).forEach(t => freq[t] = (freq[t] || 0) + 1));
+                    return freq;
+                },
+                rarityScore(tagName) {
+                    const totalPets = this.pets.length;
+                    if (!totalPets) return 1;
+                    const freq = this.getTagFrequency();
+                    const count = this.safeNum(freq[tagName], 0);
+                    return Math.max(1, Math.log((totalPets + 1) / (count + 1)) + 1);
+                },
+                getTagValue(tagName) {
+                    const info = this.tags.find(t => t.name === tagName);
+                    if (!info) return 1;
+
+                    // --- 1. 線性主觀分計算 ---
+                 // 找出目前所有標籤中最大的 Rank 作為分母，確保動態適應你的 Tags 表
+                    const allRanks = this.tags.map(t => this.safeNum(t.color_rank, 3));
+                    const maxRank = Math.max(...allRanks, 3); // 至少為 3 (橘紅級)
+
+                    const currentRank = this.safeNum(info.subjective_rank ?? info.subject_rank, 1);
+
+                    // 公式：確保 Rank 1 得到最高分，且每階差距固定
+                    // 使用 Math.max 確保分數不會變成負數
+                const subjectiveScore = Math.max(0.05, (maxRank - currentRank + 1) / maxRank);
+
+                    // --- 2. 稀有度正規化 ---
+                    // 將 ln 得到的稀有度縮放到 0~1 之間
+                    const rawRarity = this.rarityScore(tagName);
+                    // 理論最大稀有度：當全服只有 1 隻寵物擁有時
+                    const maxPossibleRarity = Math.log(this.pets.length + 1) + 1; 
+                    const normalizedRarity = rawRarity / (maxPossibleRarity || 1);
+
+                    // --- 3. 綜合加權 (0.7 / 0.3) ---
+                    // 此時兩者皆在 0~1 之間，加權比例將會非常精準
+                    return (0.7 * subjectiveScore) + (0.3 * normalizedRarity);
+                },
+                findTagMeta(tagName, species = '') {
+                    const keyName = this.normalizeKey(tagName);
+                    const keySpecies = this.normalizeKey(species);
+                    const exact = this.tags.find(t => {
+                        if (this.normalizeKey(t.name) !== keyName) return false;
+                        if (!keySpecies) return true;
+                        return this.normalizeKey(t.species) === keySpecies;
+                    });
+                    if (exact) return exact;
+                    return this.tags.find(t => this.normalizeKey(t.name) === keyName) || null;
+                },
+                inferSpeciesFromTags(tags) {
+                    const scores = {};
+                    (tags || []).forEach(tagName => {
+                        const keyName = this.normalizeKey(tagName);
+                        this.tags
+                            .filter(t => this.normalizeKey(t.name) === keyName)
+                            .forEach(t => {
+                                const species = this.normalizeKey(t.species);
+                                if (!species) return;
+                                const weight = t.category === '種類' ? 100 : 1;
+                                scores[species] = (scores[species] || 0) + weight;
+                            });
+                    });
+                    const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+                    return ranked.length ? ranked[0][0] : '';
+                },
+                getNameSuffix(idx) {
+                    return (["", "二", "三", "四", "五", "六"][idx] || idx);
+                },
+                normalizeTags(tags) {
+                    return [...new Set((tags || []).filter(Boolean))].sort();
+                },
+                sameTagSet(a, b) {
+                    const x = this.normalizeTags(a);
+                    const y = this.normalizeTags(b);
+                    if (x.length !== y.length) return false;
+                    return x.every((t, i) => t === y[i]);
+                },
+                getAutoIndexedName(owner, baseName, tags, gender = '') {
+                    const seed = String(baseName || '').trim();
+                    if (!seed) return seed;
+                    let sameTagPets = this.pets.filter(p => p.owner === owner && this.sameTagSet(p.tags || [], tags || []));
+                    if (gender) {
+                        sameTagPets = sameTagPets.filter(p => p.gender === gender);
+                    }
+                    let nextName = seed;
+                    let idx = 1;
+                    while (sameTagPets.some(p => p.name === nextName)) {
+                        nextName = `${seed}${this.getNameSuffix(idx)}`;
+                        idx += 1;
+                    }
+                    return nextName;
+                },
+                getParentUnionPreview(inh, parentA, parentB) {
+                    const union = this.unique([...(parentA.tags || []), ...(parentB.tags || [])]);
+                    if (!union.length) return [];
+                    const flat = this.flattenInheritance(inh);
+                    const probMap = {};
+                    flat.forEach(x => {
+                        probMap[x.name] = this.safeNum(x.prob, 0);
+                    });
+                    return union
+                        .map(name => ({ name, prob: probMap[name] ?? 0 }))
+                        .filter(x => x.prob > 0)
+                        .sort((a, b) => b.prob - a.prob);
+                },
+                isTagOwnedByEither(tagName, petA, petB) {
+                    const inA = !!(petA && (petA.tags || []).includes(tagName));
+                    const inB = !!(petB && (petB.tags || []).includes(tagName));
+                    return inA || inB;
+                },
+                getDesiredTagsByCategory(desiredTags, species = '') {
+                    const selectedByCategory = {};
+                    (desiredTags || []).forEach(tagName => {
+                        const meta = this.findTagMeta(tagName, species);
+                        const cat = this.normalizeKey(meta ? meta.category : '');
+                        const normalizedTag = this.normalizeKey(tagName);
+                        if (!cat || cat === '種類') return;
+                        if (!selectedByCategory[cat]) selectedByCategory[cat] = [];
+                        selectedByCategory[cat].push(normalizedTag);
+                    });
+                    return selectedByCategory;
+                },
+                getMatchCandidatePool(targetPet) {
+                    if (!targetPet) {
+                        return {
+                            species: '',
+                            allOtherPets: [],
+                            oppositeGenderCandidates: [],
+                            readyCandidates: [],
+                            sameSpeciesCandidates: []
+                        };
+                    }
+                    const species = this.getSpeciesOfPet(targetPet);
+                    const allOtherPets = this.pets.filter(p => p.id != targetPet.id);
+                    const oppositeGenderCandidates = allOtherPets.filter(p => p.gender !== targetPet.gender && !!p.gender);
+                    const readyCandidates = oppositeGenderCandidates.filter(p => p.remaining > 0 && p.status === 'active');
+                    const sameSpeciesCandidates = species
+                        ? readyCandidates.filter(p => this.getSpeciesOfPet(p) === species)
+                        : [];
+                    return { species, allOtherPets, oppositeGenderCandidates, readyCandidates, sameSpeciesCandidates };
+                },
+                explainMatchOutcome(targetPet, candidatePet, desiredTags, scoreResult) {
+                    const species = this.getSpeciesOfPet(targetPet) || this.getSpeciesOfPet(candidatePet);
+                    const selectedByCategory = this.getDesiredTagsByCategory(desiredTags, species);
+                    const categories = Object.keys(selectedByCategory);
+                    const normalizedDesiredTags = this.unique(desiredTags || []);
+                    const combined = this.toSet([...(targetPet.tags || []), ...(candidatePet.tags || [])]);
+                    const missingCategories = categories.filter(cat => !selectedByCategory[cat].some(tag => !!combined[tag]));
+                    const sharedPass = categories.length > 0 && missingCategories.length === 0;
+                    const missingDetails = missingCategories.map(cat => {
+                        const selected = selectedByCategory[cat] || [];
+                        const owned = [...(targetPet.tags || []), ...(candidatePet.tags || [])].filter(tagName => {
+                            const meta = this.findTagMeta(tagName, species);
+                            return meta && meta.category === cat;
+                        });
+                        return `${cat}（目標: ${selected.join('、') || '無'} / 聯集: ${owned.join('、') || '無'}）`;
+                    });
+
+                    if (targetPet && (targetPet.type === 'normal' || targetPet.type === 'good') && desiredTags.length) {
+                        if (!categories.length) {
+                            return {
+                                passed: false,
+                                reason: `目標詞條分類解析失敗：${normalizedDesiredTags.join('、') || '未選擇'}`
+                            };
+                        }
+                        return {
+                            passed: sharedPass,
+                            reason: sharedPass ? '通過' : `聯集未命中分類：${missingDetails.join('；') || '未解析分類'}`
+                        };
+                    }
+                    if (scoreResult.score <= 0) {
+                        return { passed: false, reason: '推薦分數 <= 0' };
+                    }
+                    return { passed: true, reason: '通過' };
+                },
+                isGoodTargetSatisfiedByCandidateTags(targetPet, candidatePet, desiredTags) {
+                    const species = this.getSpeciesOfPet(targetPet) || this.getSpeciesOfPet(candidatePet);
+                    const selectedByCategory = this.getDesiredTagsByCategory(desiredTags, species);
+                    const categories = Object.keys(selectedByCategory);
+                    if (!categories.length) return false;
+                    const combined = this.toSet([...(targetPet.tags || []), ...(candidatePet.tags || [])]);
+                    return categories.every(cat => selectedByCategory[cat].some(tag => !!combined[tag]));
+                },
+                isNormalTargetSatisfiedByCombinedTags(targetPet, candidatePet, desiredTags) {
+                    if (!desiredTags || !desiredTags.length) return false;
+                    const species = this.getSpeciesOfPet(targetPet) || this.getSpeciesOfPet(candidatePet);
+                    const selectedByCategory = this.getDesiredTagsByCategory(desiredTags, species);
+                    const categories = Object.keys(selectedByCategory);
+                    if (!categories.length) return false;
+
+                    const combined = this.toSet([...(targetPet.tags || []), ...(candidatePet.tags || [])]);
+                    return categories.every(cat => selectedByCategory[cat].some(tag => !!combined[tag]));
+                },
+                calculatePairScore(parentA, parentB, desiredTags = []) {
+                    const ownerContext = String(parentA.owner || parentB.owner || '');
+                    const inh = this.calculateInheritance(parentA, parentB, ownerContext);
+                    const desired = this.toSet(desiredTags);
+                    const aSet = this.toSet(parentA.tags || []);
+                    const bSet = this.toSet(parentB.tags || []);
+
+                    let total = 0;
+                    const duplicated = [];
+                    const matched = [];
+
+                    this.flattenInheritance(inh).forEach(g => {
+                        let factor = 1;
+                        if (desired[g.name]) {
+                            factor *= 2.0;
+                            matched.push(g.name);
+                        }
+                        if (aSet[g.name] && bSet[g.name]) {
+                            factor *= 1.2;
+                            duplicated.push(g.name);
+                        }
+                        total += (this.safeNum(g.prob, 0) / 100) * this.getTagValue(g.name) * factor;
+                    });
+
+                    return {
+                        score: this.round2(total),
+                        inheritance: inh,
+                        duplicated: this.unique(duplicated),
+                        matched: this.unique(matched)
+                    };
+                },
+                isConsanguineous(p1, p2) {
+                    const aId = String(p1.id || '');
+                    const bId = String(p2.id || '');
+                    const aFather = String(p1.father || '');
+                    const aMother = String(p1.mother || '');
+                    const bFather = String(p2.father || '');
+                    const bMother = String(p2.mother || '');
+
+                    if (aId && (bFather === aId || bMother === aId)) return true;
+                    if (bId && (aFather === bId || aMother === bId)) return true;
+                    if (aFather && bFather && aFather === bFather) return true;
+                    if (aMother && bMother && aMother === bMother) return true;
+                    if (aFather && aFather === bMother) return true;
+                    if (aMother && aMother === bFather) return true;
+                    return false;
+                },
+                getRank01Expected(inh) {
+                    let sum = 0;
+                    this.flattenInheritance(inh).forEach(g => {
+                        if (g.color_rank === 0 || g.color_rank === 1) sum += this.safeNum(g.prob, 0);
+                    });
+                    return sum;
+                },
+                getConsanguinitySummary() {
+                    const pool = this.pets.filter(p => p.analyze === true && p.gender && (this.reportOwnerFilter === 'ALL' || p.owner === this.reportOwnerFilter));
+                    const rows = [];
+
+                    for (let i = 0; i < pool.length; i++) {
+                        for (let j = i + 1; j < pool.length; j++) {
+                            const p1 = pool[i];
+                            const p2 = pool[j];
+                            if (p1.gender === p2.gender) continue;
+                            if (this.getSpeciesOfPet(p1) !== this.getSpeciesOfPet(p2)) continue;
+                            const ownerContext = p1.owner === p2.owner ? String(p1.owner || '') : '';
+                            const inh = this.calculateInheritance(p1, p2, ownerContext);
+                            rows.push({
+                                close: this.isConsanguineous(p1, p2),
+                                rank01: this.getRank01Expected(inh)
+                            });
+                        }
+                    }
+
+                    const closeRows = rows.filter(r => r.close);
+                    const nonCloseRows = rows.filter(r => !r.close);
+
+                    const avg = arr => arr.length ? arr.reduce((s, x) => s + x.rank01, 0) / arr.length : 0;
+                    const closeAvg = avg(closeRows);
+                    const nonCloseAvg = avg(nonCloseRows);
+
+                    let conclusion = '近親組與非近親組在 Rank 0/1 的預期出現率相近。';
+                    if (closeAvg > nonCloseAvg) conclusion = '近親組在 Rank 0/1 的預期出現率較高。';
+                    if (closeAvg < nonCloseAvg) conclusion = '非近親組在 Rank 0/1 的預期出現率較高。';
+
+                    return {
+                        closeCount: closeRows.length,
+                        nonCloseCount: nonCloseRows.length,
+                        closeAvg: this.round2(closeAvg),
+                        nonCloseAvg: this.round2(nonCloseAvg),
+                        conclusion
+                    };
+                },
+
+                // 取得某寵物某詞條的歷史遺傳機率（0-100%）
+                // 若沒有相關紀錄，預設回傳 50%。
+                getTagProb(pet, tagName) {
+                    const relevent = this.records.filter(r => {
+                        return r.father === pet.id || r.mother === pet.id || r.father === pet.name || r.mother === pet.name;
+                    });
+                    if (!relevent.length) return 50;
+                    const success = relevent.filter(r => (r.tags||[]).includes(tagName)).length;
+                    return Math.round((success / relevent.length) * 100);
+                },
+                // 取得寵物整體遺傳率（百分比）：
+                // (所有子嗣總繼承詞條數) / (理論總詞條槽位)
+                // 若無紀錄，預設 20%。
+                getInheritRate(pet) {
+                    const relevent = this.records.filter(r => {
+                        return r.father === pet.id || r.mother === pet.id || r.father === pet.name || r.mother === pet.name;
+                    });
+                    if (!relevent.length) return 20; 
+                    const totalInheritedTags = relevent.reduce((acc, r) => acc + (r.tags ? r.tags.length : 0), 0);
+                    return Math.round((totalInheritedTags / (relevent.length * (pet.tags ? pet.tags.length : 1))) * 100);
+                },
+                // 胚子分數：以各詞條價值加總，作為單體品質評估。
+                getEmbryoScore(pet) {
+                    return this.round2((pet.tags || []).reduce((sum, t) => sum + this.getTagValue(t), 0));
+                },
+                // 是否達到頂級胚子門檻
+                isBestEmbryo(pet) { return this.getEmbryoScore(pet) > 60; },
+                // 取該持有者 top3 好胚（依分數）
+                getTopEmbryos(owner) { return this.pets.filter(p => p.owner === owner && p.type === 'good').sort((a,b) => this.getEmbryoScore(b) - this.getEmbryoScore(a)).slice(0, 3); },
+                getTopTagsWithRank(pet) {
+                    const ranked = (pet.tags || [])
+                        .map(tag => ({ tag, score: this.getTagValue(tag) }))
+                        .sort((a, b) => b.score - a.score)
+                        .map((x, idx) => ({ tag: x.tag, rank: idx + 1 }));
+                    return ranked;
+                },
+                getTopEmbryoTags(pet) {
+                    const ranked = this.getTopTagsWithRank(pet);
+                    return ranked.map(item => ({
+                        name: item.tag,
+                        rank: item.rank,
+                        color: this.getTagColor(item.tag)
+                    }));
+                },
+                formatTopTagsWithRank(pet) {
+                    return this.getTopTagsWithRank(pet)
+                        .map(x => `${x.tag} #${x.rank}`)
+                        .join(', ');
+                },
+
+                // --- 分析頁輔助 ---
+                isReportTypeMatch(pet) {
+                    return this.reportTypeFilter === 'ALL' || pet.type === this.reportTypeFilter;
+                },
+                getOwnerAnalysisPets(owner) {
+                    return this.pets.filter(p => p.owner === owner && p.analyze === true && this.isReportTypeMatch(p));
+                },
+                getPetTagProbabilities(pet) {
+                    return (pet.tags || []).map(tag => ({
+                        tag,
+                        prob: this.getTagProb(pet, tag)
+                    })).sort((a, b) => b.prob - a.prob);
+                },
+                getSinglePetHistoricalReport(owner) {
+                    return this.getOwnerAnalysisPets(owner)
+                        .map(p => ({
+                            id: p.id,
+                            name: p.name,
+                            score: this.getEmbryoScore(p),
+                            tagProbs: this.getPetTagProbabilities(p)
+                        }))
+                        .sort((a, b) => b.score - a.score);
+                },
+
+                // 找出某寵物在歷史子嗣中最常出現的詞條（Top1）
+                getPetBestInheritedTag(pet) {
+                    const relevent = this.records.filter(r => {
+                        return r.father === pet.id || r.mother === pet.id || r.father === pet.name || r.mother === pet.name;
+                    });
+                    if (relevent.length === 0) return "尚無數據";
+
+                    const tagCounts = {};
+                    relevent.forEach(r => {
+                        (r.tags || []).forEach(t => {
+                            tagCounts[t] = (tagCounts[t] || 0) + 1;
+                        });
+                    });
+
+                    if (Object.keys(tagCounts).length === 0) return "未遺傳任何標籤";
+
+                    let bestTag = "";
+                    let maxCount = 0;
+                    for (const [tag, count] of Object.entries(tagCounts)) {
+                        if (count > maxCount) {
+                            maxCount = count;
+                            bestTag = tag;
+                        }
+                    }
+
+                    const prob = Math.round((maxCount / relevent.length) * 100);
+                    return `${bestTag} (${prob}%)`;
+                },
+                getPetBestInheritedData(pet) {
+                    const relevent = this.records.filter(r => {
+                        return r.father === pet.id || r.mother === pet.id || r.father === pet.name || r.mother === pet.name;
+                    });
+                    if (relevent.length === 0) return null;
+
+                    const tagCounts = {};
+                    relevent.forEach(r => {
+                        (r.tags || []).forEach(t => {
+                            tagCounts[t] = (tagCounts[t] || 0) + 1;
+                        });
+                    });
+
+                    if (!Object.keys(tagCounts).length) return null;
+
+                    let bestTag = '';
+                    let maxCount = 0;
+                    Object.entries(tagCounts).forEach(([tag, count]) => {
+                        if (count > maxCount) {
+                            maxCount = count;
+                            bestTag = tag;
+                        }
+                    });
+
+                    const prob = Math.round((maxCount / relevent.length) * 100);
+                    return { tag: bestTag, prob: prob, bestTag: `${bestTag} (${prob}%)` };
+                },
+                getOwnerTop1ByGender(owner, gender) {
+                    const pool = this.getOwnerAnalysisPets(owner).filter(p => p.gender === gender);
+                    const mapped = pool.map(p => {
+                        const best = this.getPetBestInheritedData(p);
+                        return best ? { id: p.id, name: p.name, bestTag: best.bestTag, prob: best.prob } : null;
+                    }).filter(Boolean);
+
+                    if (!mapped.length) return null;
+                    mapped.sort((a, b) => b.prob - a.prob);
+                    return mapped[0];
+                },
+
+                // 組出分析頁「每隻寵物 Top1」資料，無資料者排後面
+                getOwnerPetsAnalysisList(owner) {
+                    return this.getOwnerAnalysisPets(owner)
+                        .map(p => {
+                            return {
+                                name: p.name,
+                                bestTag: this.getPetBestInheritedTag(p)
+                            };
+                        })
+                        .sort((a,b) => a.bestTag === "尚無數據" ? 1 : (b.bestTag === "尚無數據" ? -1 : 0));
+                },
+
+                // --- 核心配對演算法 ---
+                // 對每個候選配對計算分數，並依命中數與總分排序。
+                calculateMatch() {
+                    if (!this.matchingTarget) return;
+                    if (!this.matchSelectionConfirmed) {
+                        this.matchResults = [];
+                        this.rejectedMatchCandidates = [];
+                        return;
+                    }
+                    const pool = this.getMatchCandidatePool(this.matchingTarget);
+                    this.matchDiagnostics = {
+                        targetSpecies: pool.species,
+                        oppositeGender: pool.oppositeGenderCandidates.length,
+                        ready: pool.readyCandidates.length,
+                        speciesMatched: pool.sameSpeciesCandidates.length
+                    };
+                    if (!this.desiredTags.length) {
+                        this.matchResults = [];
+                        this.rejectedMatchCandidates = [];
+                        return;
+                    }
+                    if (!this.matchingTarget.gender) {
+                        this.matchResults = [];
+                        this.rejectedMatchCandidates = [];
+                        return;
+                    }
+                    const initialCandidates = pool.sameSpeciesCandidates;
+                    const evaluated = initialCandidates.map(p => {
+                        const scoreResult = this.calculatePairScore(this.matchingTarget, p, this.desiredTags);
+                        const flat = this.flattenInheritance(scoreResult.inheritance).sort((a, b) => b.prob - a.prob);
+                        const preview = flat
+                            .slice(0, 4)
+                            .map(x => `${x.name}(${this.round2(x.prob)}%)`)
+                            .join('、');
+                        const predictedTopTags = this.getParentUnionPreview(scoreResult.inheritance, this.matchingTarget, p);
+                        const tagProbMap = {};
+                        flat.forEach(x => {
+                            tagProbMap[x.name] = this.round2(x.prob);
+                        });
+
+                        const outcome = this.explainMatchOutcome(this.matchingTarget, p, this.desiredTags, scoreResult);
+                        return { 
+                            pet: p, 
+                            matchScore: scoreResult.score,
+                            doubleTagBonus: scoreResult.duplicated,
+                            matchCount: scoreResult.matched.length,
+                            preview,
+                            predictedTopTags,
+                            tagProbMap,
+                            passedFilter: outcome.passed,
+                            rejectReason: outcome.reason
+                        };
+                    });
+                    this.rejectedMatchCandidates = evaluated
+                        .filter(res => !res.passedFilter)
+                        .map(res => ({ pet: res.pet, reason: res.rejectReason }));
+                    this.matchResults = evaluated
+                    .filter(res => res.passedFilter)
+                    .sort((a,b) => {
+                        if (a.matchCount !== b.matchCount) return b.matchCount - a.matchCount;
+                        return b.matchScore - a.matchScore;
+                    });
+                },
+                confirmDesiredTags() {
+                    this.desiredTags = this.unique(this.desiredTagsDraft || []);
+                    this.matchSelectionConfirmed = true;
+                    this.calculateMatch();
+                },
+                editDesiredTags() {
+                    this.matchSelectionConfirmed = false;
+                    this.matchResults = [];
+                    this.rejectedMatchCandidates = [];
+                },
+                getMatchTagProb(res, tagName) {
+                    if (!res || !res.tagProbMap) return 0;
+                    return Math.round(this.safeNum(res.tagProbMap[tagName], 0));
+                },
+                // 開啟配對彈窗並先跑一次初始計算
+                openMatchPicker(pet) {
+                    this.matchingTarget = pet;
+                    this.desiredTags = [];
+                    this.desiredTagsDraft = [];
+                    this.matchSelectionConfirmed = false;
+                    this.matchResults = [];
+                    this.rejectedMatchCandidates = [];
+                    const pool = this.getMatchCandidatePool(pet);
+                    this.matchDiagnostics = {
+                        targetSpecies: pool.species,
+                        oppositeGender: pool.oppositeGenderCandidates.length,
+                        ready: pool.readyCandidates.length,
+                        speciesMatched: pool.sameSpeciesCandidates.length
+                    };
+                    this.showMatchPicker = true;
+                },
+
+                // --- 工具 / 查找方法 ---
+                // 以 ID 查寵物，查無時回傳安全預設值
+                getPet(id) { return this.pets.find(p => p.id == id) || { name: '?', owner: '?', tags: [], rarity: '普通', gender: '公', analyze: false }; },
+                // 取得詞條顏色（找不到則回傳預設深色）
+                getTagColor(name) { const t = this.tags.find(x => x.name === name); return t ? t.color : '#d3d3d3'; },
+                isLightColor(color) {
+                    const hex = String(color || '').trim().replace('#','');
+                    if (!/^[0-9A-Fa-f]{6}$/.test(hex)) return false;
+                    const r = parseInt(hex.slice(0,2),16);
+                    const g = parseInt(hex.slice(2,4),16);
+                    const b = parseInt(hex.slice(4,6),16);
+                    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+                    return luminance > 180;
+                },
+                getTagStyle(name) {
+                    const tag = this.tags.find(x => x.name === name);
+                    const isUnknown = !tag || name === '未知';
+                    
+                    // 如果是 color_rank=1 的詞條，使用柔和彩虹漸變
+                    if (tag && tag.color_rank === 1) {
+                        return {
+                            background: 'linear-gradient(135deg, #FFD9B3 0%, #FFFFB3 25%, #D9FFB3 50%, #B3FFFF 75%, #E6B3FF 100%)',
+                            color: '#333',
+                            backgroundSize: '200% 200%'
+                        };
+                    }
+                    
+                    // 如果是 color_rank=0 的詞條，使用 Unicorn Rainbow 漸層
+                    if (tag && tag.color_rank === 0) {
+                        return {
+                            background: 'linear-gradient(135deg, #F5BFF4 0%, #FFF8B3 25%, #B0FFF8 50%, #F5BFF4 100%)',
+                            color: '#333',
+                            backgroundSize: '200% 200%'
+                        };
+                    }
+                    
+                    // 否則使用原有的單色邏輯
+                    const backgroundColor = tag ? (tag.color || '#d3d3d3') : '#d3d3d3';
+                    return {
+                        backgroundColor: isUnknown ? '#d3d3d3' : backgroundColor,
+                        color: isUnknown ? '#111' : (this.isLightColor(backgroundColor) ? '#111' : '#fff')
+                    };
+                },
+                getTypeLabel(type) {
+                    return type === 'good' ? '好胚' : type === 'normal' ? '普普' : '爛爛';
+                },
+                getRarityFromTags(tags) {
+                    const tag = this.tags.find(x => x.category === '種類' && (tags || []).includes(x.name));
+                    if (!tag) return '普通';
+                    if (tag.color_rank === 0) return '典藏珍';
+                    if (tag.color_rank === 1) return '典藏';
+                    return '普通';
+                },
+                // 推導寵物物種（優先 pet.species，其次依全部已持有詞條加權推導）
+                getSpeciesOfPet(pet) { return this.normalizeKey((pet && pet.species) || '') || this.inferSpeciesFromTags((pet && pet.tags) || []); },
+                // 取寵物在「種類」分類中的詞條名稱
+                getCategoryTypeName(pet) { const t = this.tags.find(x => x.category === '種類' && (pet.tags || []).includes(x.name)); return t ? t.name : "未知"; },
+                // 依分類分組物種詞條（供勾選 UI）
+                groupedTagsBySpecies(s) {
+                    const keySpecies = this.normalizeKey(s);
+                    const g = {};
+                    this.tags.filter(t => this.normalizeKey(t.species) === keySpecies).forEach(t => {
+                        const cat = this.normalizeKey(t.category);
+                        if (!g[cat]) g[cat] = [];
+                        g[cat].push(t);
+                    });
+                    return g;
+                },
+                // 配對目標詞條：不顯示「種類」分類
+                groupedTargetTagsBySpecies(s) {
+                    const g = this.groupedTagsBySpecies(s);
+                    delete g['種類'];
+                    return g;
+                },
+                // 同上，但非「種類」分類額外加入「無X」選項
+                groupedTagsWithNone(s) { const g = this.groupedTagsBySpecies(s); Object.keys(g).forEach(cat => { if(cat !== '種類') g[cat].push({ name: `無${cat}`, color: '#ccc', category: cat }); }); return g; },
+                // 切換性別（確認後同步）
+                toggleGender(p) { const nextG = p.gender === '公' ? '母' : '公'; if(confirm(`將「${p.name}」切換為【${nextG}】？`)) { p.gender = nextG; this.sync(true); } },
+                // 判斷哪些分類允許多選（目前只有「技能」）
+                isMultiTagCategory(c) { return c === '技能'; },
+                // 表單：只有「技能」可以多選，其餘分類單選
+                toggleFormTag(c, t) {
+                    const catTags = this.tags.filter(x => x.category === c).map(x => x.name);
+                    if (this.isMultiTagCategory(c)) {
+                        if (this.form.selectedTags.includes(t)) {
+                            this.form.selectedTags = this.form.selectedTags.filter(x => x !== t);
+                        } else {
+                            this.form.selectedTags.push(t);
+                        }
+                    } else {
+                        this.form.selectedTags = this.form.selectedTags.filter(x => !catTags.includes(x));
+                        this.form.selectedTags.push(t);
+                    }
+                },
+                // 編輯寵物：只有「技能」可以多選，其餘分類單選
+                toggleEditTag(pet, c, t) {
+                    const catTags = [...this.tags.filter(x => x.category === c).map(x => x.name), `無${c}`];
+                    if (this.isMultiTagCategory(c)) {
+                        if (pet.tags.includes(t)) {
+                            pet.tags = pet.tags.filter(x => x !== t);
+                        } else {
+                            pet.tags.push(t);
+                        }
+                    } else {
+                        pet.tags = pet.tags.filter(x => !catTags.includes(x));
+                        pet.tags.push(t);
+                    }
+                },
+                // 子嗣登記：只有「技能」可以多選，其餘分類單選
+                toggleSingleChildTag(c, t) {
+                    const allCatTags = [...this.tags.filter(x => x.category === c).map(x => x.name), `無${c}`];
+                    if (this.isMultiTagCategory(c)) {
+                        if (this.singleChild.tags.includes(t)) {
+                            this.singleChild.tags = this.singleChild.tags.filter(x => x !== t);
+                        } else {
+                            this.singleChild.tags.push(t);
+                        }
+                    } else {
+                        this.singleChild.tags = this.singleChild.tags.filter(x => !allCatTags.includes(x));
+                        this.singleChild.tags.push(t);
+                    }
+                },
+                
+                // --- 寵物 CRUD ---
+                // 驗證手動登記並新增寵物，剩餘次數依稀有度設定
+                addPet() {
+                    if (!this.form.name || !this.formSpecies || !this.form.owner) return alert("請填寫必填資訊！");
+                    const resolvedName = this.getAutoIndexedName(this.form.owner, this.form.name, this.form.selectedTags, this.form.gender);
+                    const derivedRarity = this.getRarityFromTags(this.form.selectedTags);
+                    this.pets.push({ 
+                        id: Date.now().toString() + Math.floor(Math.random()*10), 
+                        owner: this.form.owner, name: resolvedName, rarity: derivedRarity, 
+                        tags: [...this.form.selectedTags], species: this.formSpecies, 
+                        remaining: (derivedRarity==='普通'?2:derivedRarity==='典藏'?3:4), 
+                        gender: this.form.gender, status: 'active', type: this.form.type, 
+                        analyze: this.form.analyze, source: this.form.source,
+                        father: '', mother: ''
+                    });
+                    this.sync(); this.form.name = ''; this.form.selectedTags = []; this.form.type = 'good';
+                },
+
+                // --- 子嗣結果登記 ---
+                // 完成子嗣寫入、歷史紀錄寫入、父母剩餘次數遞減與佇列清除
+                submitSingleResult() {
+                    const { item, side } = this.resultTarget; const p = this.getPet(item[side]); const other = this.getPet(side==='pA'?item.pB:item.pA);
+                    if(this.singleChild.type !== 'bad' && this.singleChild.type !== 'none') {
+                        if(!this.singleChild.name || !this.singleChild.gender) return alert("名稱與性別必填！");
+                    }
+                    if(this.singleChild.type !== 'none') {
+                        if(!this.singleChild.tags.some(tagName => {
+                            const meta = this.tags.find(t => t.name === tagName);
+                            return meta && meta.category === '種類';
+                        })) return alert("種類類別必填！");
+                        const catCount = Object.keys(this.groupedTagsBySpecies(this.resultSpecies)).length;
+                        if(this.singleChild.tags.length < catCount) return alert("標籤分類必選！");
+                        let fTags = this.singleChild.tags.filter(t => !t.startsWith('無'));
+                        const resolvedChildName = this.getAutoIndexedName(p.owner, this.singleChild.name || "未命名", fTags, this.singleChild.gender);
+                        const fatherId = String(p.gender==='公' ? p.id : other.id);
+                        const motherId = String(p.gender==='母' ? p.id : other.id);
+                        const derivedRarity = this.getRarityFromTags(fTags);
+                        // 使用父母的 ID 存入 pets/records，Google Sheet Pets 分頁 father/mother 欄位只會是 ID
+                        this.pets.push({ 
+                            id: Date.now().toString(), owner: p.owner, name: resolvedChildName, 
+                            rarity: derivedRarity, tags: fTags, species: this.resultSpecies, 
+                            remaining: (derivedRarity==='普通'?2:derivedRarity==='典藏'?3:4), gender: this.singleChild.gender || '公', 
+                            status:'active', type: this.singleChild.type, 
+                            analyze: true, source:'breed',
+                            father: fatherId, mother: motherId
+                        });
+                        this.records.push({ 
+                            id: Date.now().toString(), owner: p.owner, species: this.resultSpecies, tags: fTags, 
+                            date: new Date().toLocaleDateString(), name: resolvedChildName, 
+                            father: fatherId, mother: motherId 
+                        });
+                    }
+                    // 解除當前點擊這方的繁育狀態並扣除次數
+                    p.status = 'active'; 
+                    p.remaining--;
+
+                    // 如果是同一個持有者（非跨區配對），同時解除另一半的狀態並扣除次數
+                    if (!item.cross) {
+                        other.status = 'active';
+                        other.remaining--;
+                    }
+
+                    if(side === 'pA') item.pADone = true; else item.pBDone = true;
+                    if(!item.cross || (item.pADone && item.pBDone)) this.breedingQueue = this.breedingQueue.filter(x => x.id != item.id);
+                    this.showResultModal = false; this.sync(true);
+                },
+
+                // --- 分析分頁輔助 ---
+
+                // 某持有者目前納入分析的寵物數
+                getAnalyzePetCount(owner) { return this.getOwnerAnalysisPets(owner).length; },
+                // 某持有者分析池中最常見 Top5 詞條
+                getAnalyzeGeneticTags(owner) {
+                    const pool = this.getOwnerAnalysisPets(owner);
+                    const tagCounts = {};
+                    pool.forEach(p => { (p.tags || []).forEach(t => tagCounts[t] = (tagCounts[t] || 0) + 1); });
+                    return Object.keys(tagCounts).sort((a,b) => tagCounts[b] - tagCounts[a]).slice(0, 5);
+                },
+                // 取配對遺傳預覽（顯示前幾個高機率詞條）
+                getGeneticPreview(p1, p2) {
+                    const ownerContext = String(p1.owner || p2.owner || '');
+                    const inh = this.calculateInheritance(p1, p2, ownerContext);
+                    const picks = this.flattenInheritance(inh)
+                        .sort((a, b) => b.prob - a.prob)
+                        .slice(0, 4)
+                        .map(x => `${x.name} ${this.round2(x.prob)}%`);
+                    return picks.join('、') || "無";
+                },
+                // --- 繁育佇列管理 ---
+                // 確認配對後加入 6 小時計時佇列，並同步狀態
+                confirmPairing(p) {
+                    if(!confirm(`開始繁育計時？`)) return;
+                    const now = Date.now();
+                    this.breedingQueue.push({ id: now.toString(), pA: this.matchingTarget.id, pB: p.id, start: now, end: now + 6*60*60*1000, cross: this.matchingTarget.owner !== p.owner, pADone: false, pBDone: false });
+                    this.pets.find(x => x.id == this.matchingTarget.id).status = 'breeding';
+                    this.pets.find(x => x.id == p.id).status = 'breeding';
+                    this.showMatchPicker = false; this.sync(true);
+                },
+                // 開啟單側結果登記彈窗，預先帶入「種類」詞條
+                openSingleResultModal(item, side) {
+                    const p = this.getPet(item[side]);
+                    this.resultTarget = { item, side, sideName: p.name };
+                    this.singleChild = { name: '', type: 'good', gender: '', tags: [this.getCategoryTypeName(p)] };
+                    this.showResultModal = true;
+                },
+                // 避免重名：自動補二、三、四…尾碼
+                checkAutoName() {
+                    const owner = this.getPet(this.resultTarget.item[this.resultTarget.side]).owner;
+                    this.singleChild.name = this.getAutoIndexedName(owner, this.singleChild.name, this.singleChild.tags.filter(t => !t.startsWith('無')), this.singleChild.gender);
+                },
+                // 強制結束倒數（測試/校正用）
+                forceEnd(item) { item.end = Date.now(); item.remainingTime = 0; this.sync(true); },
+                // 毫秒轉 HH:MM:SS
+                formatTime(ms) { if(ms<=0) return "00:00:00"; let s = Math.floor(ms/1000); return `${Math.floor(s/3600).toString().padStart(2,'0')}:${Math.floor((s%3600)/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`; },
+                // 每週重置剩餘繁育次數
+                weeklyReset() { if(confirm("重置次數？")) { const rMap = {'普通':2,'典藏':3,'典藏珍':4}; this.pets.forEach(p => p.remaining = rMap[this.getRarityFromTags(p.tags)] || 2); this.sync(true); } },
+                // 儲存編輯並同步
+                startEdit(pet) {
+                    if (!pet.isEditing) {
+                        pet.editType = pet.type; // 備份當前分類，避免卡片馬上消失
+                    }
+                    pet.isEditing = !pet.isEditing;
+                },
+
+                // 👉 找到你原本的 saveEdit，修改成以下這樣
+                saveEdit(p) {
+                    p.name = String(p.name || '').trim();
+                    if (!p.name) return alert("名稱不可空白！");
+                    if (p.editType) p.type = p.editType; // 在按下儲存時，才真正更新分類
+                    p.rarity = this.getRarityFromTags(p.tags);
+                    p.isEditing = false;
+                    this.sync(true);
+                },
+                // 刪除寵物（確認後）
+                deletePet(id) { if(confirm("確定刪除？")) { this.pets = this.pets.filter(p => p.id != id); this.sync(true); } }
+            },
+            // --- 生命週期 ---
+            // mounted：初始化資料，並每秒更新繁育倒數
+            mounted() { this.fetchData(); setInterval(() => this.breedingQueue.forEach(b => b.remainingTime = Math.max(0, Number(b.end) - Date.now())), 1000); }
+        }).mount('#app');
+    </script>
+</body>
+</html>
