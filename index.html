@@ -131,7 +131,8 @@
                         <div v-for="(group, cat) in groupedTagsBySpecies(getSpeciesOfPet(pet))" :key="cat" style="margin-top:5px;">
                             <span class="reg-category-title">{{ cat }}</span>
                             <label v-for="tag in group" :key="tag.name" style="margin-right:8px; font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
-                                <input type="checkbox" :checked="pet.tags.includes(tag.name)" @change="toggleEditTag(pet, cat, tag.name)">
+                                <!-- 👉 將 pet.tags 換成 pet.editTags -->
+                                <input type="checkbox" :checked="pet.editTags.includes(tag.name)" @change="toggleEditTag(pet, cat, tag.name)">
                                 <span class="tag-pill" :style="{...getTagStyle(tag.name), fontSize:'10px', padding:'4px 8px'}">{{ tag.name }}</span>
                             </label>
                         </div>
@@ -376,7 +377,7 @@
                 return {
                     // --- 遠端 API ---
                     // Google Apps Script Web App URL（所有讀寫都走此端點）
-                    scriptUrl: 'https://script.google.com/macros/s/AKfycbwMmS7GytyeKmY3Zl96Oc_Z9QXrgneK_0CC_pM334PBRn6s6HFFgZB4_rSFEC4jnzLCig/exec', 
+                    scriptUrl: 'https://script.google.com/macros/s/AKfycbw95wIxcbkx6enE7pFFWn7ANy8AoOSfwzoVNPPswIeuqXbN7MW7bxD9uVMFH2KZPakMGw/exec', 
                     // --- 介面狀態 ---
                     currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
                     isLoading: false,   // 非同步期間禁用部分按鈕
@@ -560,6 +561,19 @@
                 // --- 資料同步 ---
                 // 以 no-cors POST 把目前狀態送回 API。
                 // 若 isForce=true，2 秒後重新抓取一次確認寫入結果。
+                // 👉 1. 新增這一個核心的精準傳輸方法
+                async sendBatch(payload) {
+                    this.isLoading = true;
+                    await fetch(this.scriptUrl, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        body: JSON.stringify({ action: 'batch', data: payload })
+                    });
+                    // 2秒後自動重新抓取最新資料，確保雙方畫面同步
+                    setTimeout(() => {
+                        this.fetchData();
+                    }, 2000);
+                },
                 async sync(isForce = false) {
                     this.isLoading = true;
                     const dataToSync = this.pets.map(p => ({ 
@@ -1407,8 +1421,13 @@
                 // 同上，但非「種類」分類額外加入「無X」選項
                 groupedTagsWithNone(s) { const g = this.groupedTagsBySpecies(s); Object.keys(g).forEach(cat => { if(cat !== '種類') g[cat].push({ name: `無${cat}`, color: '#ccc', category: cat }); }); return g; },
                 // 切換性別（確認後同步）
-                toggleGender(p) { const nextG = p.gender === '公' ? '母' : '公'; if(confirm(`將「${p.name}」切換為【${nextG}】？`)) { p.gender = nextG; this.sync(true); } },
-                // 判斷哪些分類允許多選（目前只有「技能」）
+                toggleGender(p) {
+                    const nextG = p.gender === '公' ? '母' : '公';
+                    if(confirm(`將「${p.name}」切換為【${nextG}】？`)) {
+                        p.gender = nextG;
+                        this.sendBatch({ upsertPets: [p] }); // 🔴 只更新這隻寵物
+                    }
+                },// 判斷哪些分類允許多選（目前只有「技能」）
                 isMultiTagCategory(c) { return c === '技能'; },
                 // 表單：只有「技能」可以多選，其餘分類單選
                 toggleFormTag(c, t) {
@@ -1425,17 +1444,22 @@
                     }
                 },
                 // 編輯寵物：只有「技能」可以多選，其餘分類單選
+                // 👉 編輯寵物：所有的增刪都只對 editTags 暫存區動手
                 toggleEditTag(pet, c, t) {
                     const catTags = [...this.tags.filter(x => x.category === c).map(x => x.name), `無${c}`];
                     if (this.isMultiTagCategory(c)) {
-                        if (pet.tags.includes(t)) {
-                            pet.tags = pet.tags.filter(x => x !== t);
+                        if (pet.editTags.includes(t)) {
+                            pet.editTags = pet.editTags.filter(x => x !== t);
                         } else {
-                            pet.tags.push(t);
+                            pet.editTags.push(t);
                         }
                     } else {
-                        pet.tags = pet.tags.filter(x => !catTags.includes(x));
-                        pet.tags.push(t);
+                        if (pet.editTags.includes(t)) {
+                            pet.editTags = pet.editTags.filter(x => x !== t);
+                        } else {
+                            pet.editTags = pet.editTags.filter(x => !catTags.includes(x));
+                            pet.editTags.push(t);
+                        }
                     }
                 },
                 // 子嗣登記：只有「技能」可以多選，其餘分類單選
@@ -1459,16 +1483,18 @@
                     if (!this.form.name || !this.formSpecies || !this.form.owner) return alert("請填寫必填資訊！");
                     const resolvedName = this.getAutoIndexedName(this.form.owner, this.form.name, this.form.selectedTags, this.form.gender);
                     const derivedRarity = this.getRarityFromTags(this.form.selectedTags);
-                    this.pets.push({ 
-                        id: Date.now().toString() + Math.floor(Math.random()*10), 
-                        owner: this.form.owner, name: resolvedName, rarity: derivedRarity, 
-                        tags: this.sortTagsArray([...this.form.selectedTags]), species: this.formSpecies, 
-                        remaining: (derivedRarity==='普通'?2:derivedRarity==='典藏'?3:4), 
-                        gender: this.form.gender, status: 'active', type: this.form.type, 
+                    const newPet = {
+                        id: Date.now().toString() + Math.floor(Math.random()*10),
+                        owner: this.form.owner, name: resolvedName, rarity: derivedRarity,
+                        tags: this.sortTagsArray([...this.form.selectedTags]), species: this.formSpecies,
+                        remaining: (derivedRarity==='普通'?2:derivedRarity==='典藏'?3:4),
+                        gender: this.form.gender, status: 'active', type: this.form.type,
                         analyze: this.form.analyze, source: this.form.source,
                         father: '', mother: ''
-                    });
-                    this.sync(); this.form.name = ''; this.form.selectedTags = []; this.form.type = 'good';
+                    };
+                    this.pets.push(newPet);
+                    this.sendBatch({ upsertPets: [newPet] }); // 🔴 只傳送新增的這隻寵物給後端
+                    this.form.name = ''; this.form.selectedTags = []; this.form.type = 'good';
                 },
 
                 // --- 子嗣結果登記 ---
@@ -1478,6 +1504,10 @@
                     if(this.singleChild.type !== 'bad' && this.singleChild.type !== 'none') {
                         if(!this.singleChild.name || !this.singleChild.gender) return alert("名稱與性別必填！");
                     }
+
+                    // 準備一個「打包箱」，把這回合所有的變更放進去一次傳
+                    const payload = { upsertPets: [], addRecords: [], deleteBreeding: [], upsertBreeding: [] };
+
                     if(this.singleChild.type !== 'none') {
                         if(!this.singleChild.tags.some(tagName => {
                             const meta = this.tags.find(t => t.name === tagName);
@@ -1485,39 +1515,54 @@
                         })) return alert("種類類別必填！");
                         const catCount = Object.keys(this.groupedTagsBySpecies(this.resultSpecies)).length;
                         if(this.singleChild.tags.length < catCount) return alert("標籤分類必選！");
+                        
                         let fTags = this.sortTagsArray(this.singleChild.tags.filter(t => !t.startsWith('無')));
                         const resolvedChildName = this.getAutoIndexedName(p.owner, this.singleChild.name || "未命名", fTags, this.singleChild.gender);
                         const fatherId = String(p.gender==='公' ? p.id : other.id);
                         const motherId = String(p.gender==='母' ? p.id : other.id);
                         const derivedRarity = this.getRarityFromTags(fTags);
-                        // 使用父母的 ID 存入 pets/records，Google Sheet Pets 分頁 father/mother 欄位只會是 ID
-                        this.pets.push({ 
-                            id: Date.now().toString(), owner: p.owner, name: resolvedChildName, 
-                            rarity: derivedRarity, tags: fTags, species: this.resultSpecies, 
-                            remaining: (derivedRarity==='普通'?2:derivedRarity==='典藏'?3:4), gender: this.singleChild.gender || '公', 
-                            status:'active', type: this.singleChild.type, 
+                        
+                        const newChild = {
+                            id: Date.now().toString(), owner: p.owner, name: resolvedChildName,
+                            rarity: derivedRarity, tags: fTags, species: this.resultSpecies,
+                            remaining: (derivedRarity==='普通'?2:derivedRarity==='典藏'?3:4), gender: this.singleChild.gender || '公',
+                            status:'active', type: this.singleChild.type,
                             analyze: true, source:'breed',
                             father: fatherId, mother: motherId
-                        });
-                        this.records.push({ 
-                            id: Date.now().toString(), owner: p.owner, species: this.resultSpecies, tags: fTags, 
-                            date: new Date().toLocaleDateString(), name: resolvedChildName, 
-                            father: fatherId, mother: motherId 
-                        });
-                    }
-                    // 解除當前點擊這方的繁育狀態並扣除次數
-                    p.status = 'active'; 
-                    p.remaining--;
+                        };
+                        this.pets.push(newChild);
+                        payload.upsertPets.push(newChild);
 
-                    // 如果是同一個持有者（非跨區配對），同時解除另一半的狀態並扣除次數
+                        const newRecord = {
+                            id: Date.now().toString(), owner: p.owner, species: this.resultSpecies, tags: fTags,
+                            date: new Date().toLocaleDateString(), name: resolvedChildName,
+                            father: fatherId, mother: motherId
+                        };
+                        this.records.push(newRecord);
+                        payload.addRecords.push(newRecord);
+                    }
+
+                    p.status = 'active';
+                    p.remaining--;
+                    payload.upsertPets.push(p);
+
                     if (!item.cross) {
                         other.status = 'active';
                         other.remaining--;
+                        payload.upsertPets.push(other);
                     }
 
                     if(side === 'pA') item.pADone = true; else item.pBDone = true;
-                    if(!item.cross || (item.pADone && item.pBDone)) this.breedingQueue = this.breedingQueue.filter(x => x.id != item.id);
-                    this.showResultModal = false; this.sync(true);
+
+                    if(!item.cross || (item.pADone && item.pBDone)) {
+                        this.breedingQueue = this.breedingQueue.filter(x => x.id != item.id);
+                        payload.deleteBreeding.push(item.id);
+                    } else {
+                        payload.upsertBreeding.push(item);
+                    }
+
+                    this.showResultModal = false;
+                    this.sendBatch(payload); // 🔴 一次打包所有的異動送給資料庫
                 },
 
                 // --- 分析分頁輔助 ---
@@ -1546,10 +1591,20 @@
                 confirmPairing(p) {
                     if(!confirm(`開始繁育計時？`)) return;
                     const now = Date.now();
-                    this.breedingQueue.push({ id: now.toString(), pA: this.matchingTarget.id, pB: p.id, start: now, end: now + 6*60*60*1000, cross: this.matchingTarget.owner !== p.owner, pADone: false, pBDone: false });
-                    this.pets.find(x => x.id == this.matchingTarget.id).status = 'breeding';
-                    this.pets.find(x => x.id == p.id).status = 'breeding';
-                    this.showMatchPicker = false; this.sync(true);
+                    const newBreeding = { id: now.toString(), pA: this.matchingTarget.id, pB: p.id, start: now, end: now + 6*60*60*1000, cross: this.matchingTarget.owner !== p.owner, pADone: false, pBDone: false };
+                    this.breedingQueue.push(newBreeding);
+
+                    const targetPet = this.pets.find(x => x.id == this.matchingTarget.id);
+                    const partnerPet = this.pets.find(x => x.id == p.id);
+                    targetPet.status = 'breeding';
+                    partnerPet.status = 'breeding';
+
+                    this.showMatchPicker = false;
+                    // 🔴 同時寫入繁育佇列，並更新兩隻參與寵物的狀態
+                    this.sendBatch({
+                        upsertBreeding: [newBreeding],
+                        upsertPets: [targetPet, partnerPet]
+                    });
                 },
                 // 開啟單側結果登記彈窗，預先帶入「種類」詞條
                 openSingleResultModal(item, side) {
@@ -1564,15 +1619,25 @@
                     this.singleChild.name = this.getAutoIndexedName(owner, this.singleChild.name, this.singleChild.tags.filter(t => !t.startsWith('無')), this.singleChild.gender);
                 },
                 // 強制結束倒數（測試/校正用）
-                forceEnd(item) { item.end = Date.now(); item.remainingTime = 0; this.sync(true); },
-                // 毫秒轉 HH:MM:SS
+                forceEnd(item) {
+                    item.end = Date.now();
+                    item.remainingTime = 0;
+                    this.sendBatch({ upsertBreeding: [item] }); // 🔴 只更新這個排程
+                },// 毫秒轉 HH:MM:SS
                 formatTime(ms) { if(ms<=0) return "00:00:00"; let s = Math.floor(ms/1000); return `${Math.floor(s/3600).toString().padStart(2,'0')}:${Math.floor((s%3600)/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`; },
                 // 每週重置剩餘繁育次數
-                weeklyReset() { if(confirm("重置次數？")) { const rMap = {'普通':2,'典藏':3,'典藏珍':4}; this.pets.forEach(p => p.remaining = rMap[this.getRarityFromTags(p.tags)] || 2); this.sync(true); } },
-                // 儲存編輯並同步
+                weeklyReset() {
+                    if(confirm("重置次數？")) {
+                        const rMap = {'普通':2,'典藏':3,'典藏珍':4};
+                        this.pets.forEach(p => p.remaining = rMap[this.getRarityFromTags(p.tags)] || 2);
+                        this.sendBatch({ upsertPets: this.pets }); // 因為全部都重置，所以傳送整批更新
+                    }
+                },// 儲存編輯並同步
                 startEdit(pet) {
                     if (!pet.isEditing) {
-                        pet.editType = pet.type; // 備份當前分類，避免卡片馬上消失
+                        pet.editType = pet.type; 
+                        // 👉 新增這行：把原本的詞條複製一份到暫存區
+                        pet.editTags = [...(pet.tags || [])]; 
                     }
                     pet.isEditing = !pet.isEditing;
                 },
@@ -1581,14 +1646,20 @@
                 saveEdit(p) {
                     p.name = String(p.name || '').trim();
                     if (!p.name) return alert("名稱不可空白！");
-                    if (p.editType) p.type = p.editType; // 在按下儲存時，才真正更新分類
+                    if (p.editType) p.type = p.editType;
+                    if (p.editTags) p.tags = [...p.editTags];
                     p.tags = this.sortTagsArray(p.tags);
                     p.rarity = this.getRarityFromTags(p.tags);
                     p.isEditing = false;
-                    this.sync(true);
+                    this.sendBatch({ upsertPets: [p] }); // 🔴 只傳送修改的這隻寵物
                 },
                 // 刪除寵物（確認後）
-                deletePet(id) { if(confirm("確定刪除？")) { this.pets = this.pets.filter(p => p.id != id); this.sync(true); } }
+                deletePet(id) {
+                    if(confirm("確定刪除？")) {
+                        this.pets = this.pets.filter(p => p.id != id);
+                        this.sendBatch({ deletePets: [id] }); // 🔴 告訴後端刪除這個 ID
+                    }
+                }
             },
             // --- 生命週期 ---
             // mounted：初始化資料，並每秒更新繁育倒數
