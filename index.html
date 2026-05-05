@@ -23,12 +23,37 @@
         .embryo-tag { position: absolute; top: -12px; right: 15px; background: var(--premium); color: #333; font-size: 10px; padding: 2px 10px; border-radius: 20px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .breed-pair-card { display: flex; align-items: stretch; justify-content: space-between; padding: 15px; background: white; border-radius: 16px; margin-bottom: 15px; border-left: 10px solid var(--breeding); border: 1px solid #eee; }
         .breed-pet-side { flex: 1.2; padding: 12px; background: #fdfdfd; border-radius: 12px; border: 1px solid #f0f0f0; }
-        .breed-center { flex: 0.6; display: flex; flex-direction: column; align-items: center; justify-content: center; border-left: 1px dashed #ddd; border-right: 1px dashed #ddd; margin: 0 10px; }
+        .breed-center { flex: 0.6; display: flex; flex-direction: column; align-items: center; justify-content: center; border-left: 1px dashed #ddd; border-right: 1px dashed #ddd; margin: 0 10px; position: relative; }
         .timer-display { font-family: monospace; font-size: 22px; font-weight: bold; color: var(--danger); }
         .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 9999; backdrop-filter: blur(5px); }
         .category-block { background: #f8f9fa; padding: 12px; border-radius: 12px; margin-top: 10px; border-left: 5px solid var(--primary); }
         .reg-category-title { color: #555; font-size: 12px; font-weight: bold; background: #eee; padding: 2px 8px; border-radius: 4px; display: block; margin-bottom: 5px; }
         .btn-match { background-color: var(--match-btn) !important; color: #333 !important; border: none; font-weight: bold; width: 100%; padding: 10px; border-radius: 10px; cursor: pointer; margin-top: 10px; }
+        /*
+            配對彈窗的「我方寵物資訊」固定區
+            ------------------------------------------------------------
+            需求：在找配對 / 找其他人 / 我知道配誰三種配對視窗中，
+            使用者往下捲動候選清單或詞條區時，仍然看得到目前正在幫哪隻寵物配對。
+
+            技術：
+            1. 配對視窗本身是可滾動容器（max-height + overflow-y:auto）。
+            2. sticky 區塊放在這個滾動容器內，因此 position: sticky; top: 0;
+               會固定在該彈窗的頂端，而不是整個瀏覽器視窗頂端。
+            3. z-index 與不透明背景可避免候選卡片滾動時穿透到固定區下方。
+        */
+        .match-sticky-target {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background: var(--card);
+            padding-top: 4px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .match-sticky-target .category-block {
+            margin-bottom: 0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+        }
         .required-star { color: var(--danger); margin-left: 2px; }
     </style>
 </head>
@@ -232,6 +257,19 @@
                     </div>
                 </div>        
                 <div class="breed-center">
+                    <!--
+                        我填錯了：只在尚未登記任何結果時顯示。
+                        用途是撤銷「剛剛配錯 / 登記錯」的繁育倒數：
+                        1. 刪除這筆 Breeding
+                        2. 正式寵物歸位 active 並加回 1 次
+                        3. temp_ external 其他人資料直接從 Pets 刪除
+                    -->
+                    <button v-if="!item.pADone && !item.pBDone"
+                            @click="cancelWrongBreeding(item)"
+                            :disabled="isLoading"
+                            style="position:absolute; top:6px; right:6px; font-size:10px; padding:3px 7px; background:#fff0f0; color:var(--danger); border:1px solid var(--danger); border-radius:8px; cursor:pointer;">
+                        我填錯了
+                    </button>
                     <div v-if="item.remainingTime > 0" class="timer-display">{{ formatTime(item.remainingTime) }}</div>
                     <div v-else style="font-size:32px;">💖</div>
                     <button v-if="item.remainingTime > 0" @click="forceEnd(item)" style="font-size:10px; color:#999; border:none; background:none; cursor:pointer; margin-top:10px;">🛑 強制結束</button>
@@ -367,12 +405,29 @@
                     <button @click="closeMatchPicker" style="background: none; border: none; font-size: 24px; cursor: pointer;">×</button>
                 </div>
 
-                <!-- 目前寵物標籤：三種模式固定顯示，讓使用者知道正在幫誰配。 -->
-                <div v-if="matchingTarget" class="category-block" style="background:#fff7ef; border-left-color:#f39c12; margin-top: 15px;">
-                    <strong>此寵物目前標籤：</strong>
-                    <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px;">
-                        <span v-for="t in matchingTarget.tags" :key="t" class="tag-pill" :style="{...getTagStyle(t), fontSize:'10px'}">{{ t }}</span>
-                        <span v-if="!(matchingTarget.tags || []).length" style="font-size:11px; color:#666;">無標籤</span>
+                <!--
+                    我方寵物資訊固定區
+                    ------------------------------------------------------------
+                    三種配對模式共用：找配對 / 找其他人 / 我知道配誰。
+                    這個區塊使用 .match-sticky-target 固定在彈窗滾動容器上方，
+                    使用者往下瀏覽目標詞條、其他人資料、候選清單時，仍可隨時確認：
+                    1. 目前正在幫哪一隻寵物配對
+                    2. 該寵物的稀有度、性別與剩餘次數
+                    3. 該寵物目前持有的詞條
+                -->
+                <div v-if="matchingTarget" class="match-sticky-target">
+                    <div class="category-block" style="background:#fff7ef; border-left-color:#f39c12; margin-top: 15px;">
+                        <strong>我方寵物：</strong>
+                        <div style="margin-top:4px; font-weight:700;">
+                            [{{ getRarityFromTags(matchingTarget.tags) }}] {{ matchingTarget.name }}
+                            <span :class="matchingTarget.gender==='公'?'gender-m':'gender-f'">{{ matchingTarget.gender==='公'?'♂':'♀' }}</span>
+                            <span style="font-size:13px; color:#666; margin-left:4px; font-weight:600;">（剩{{ matchingTarget.remaining }}次）</span>
+                        </div>
+                        <div style="font-size:11px; color:#666; margin-top:2px;">持有：{{ matchingTarget.owner }}</div>
+                        <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px;">
+                            <span v-for="t in matchingTarget.tags" :key="t" class="tag-pill" :style="{...getTagStyle(t), fontSize:'10px'}">{{ t }}</span>
+                            <span v-if="!(matchingTarget.tags || []).length" style="font-size:11px; color:#666;">無標籤</span>
+                        </div>
                     </div>
                 </div>
 
@@ -451,9 +506,11 @@
                 <!-- 推薦 / 我知道配誰 共用候選結果區。外部配對模式不走候選清單。 -->
                 <div v-if="matchMode === 'recommend' && matchSelectionConfirmed && desiredTags.length > 0" class="pet-grid" style="margin-top:20px;">
                     <div v-for="res in matchResults" :key="res.pet.id" class="card" @click="confirmPairing(res.pet)" style="border: 2px solid var(--success); cursor:pointer;">
-                        <div style="display:flex; justify-content:space-between;">
-                            <h4>{{ res.pet.name }} ({{ res.pet.owner }})</h4>
-                            <span :class="res.pet.gender==='公'?'gender-m':'gender-f'">{{ res.pet.gender }}</span>
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                            <div>
+                                <h4 style="margin:0;">{{ getPetDisplayTitle(res.pet) }}</h4>
+                                <div style="font-size:11px; color:#666; margin-top:4px;">持有：{{ res.pet.owner }}</div>
+                            </div>
                         </div>
                         <div>
                             <span v-for="t in res.pet.tags" :key="t" class="tag-pill" :style="{...getTagStyle(t), fontSize:'9px'}">
@@ -481,9 +538,11 @@
 
                 <div v-if="matchMode === 'known' && knownOwnerFilter" class="pet-grid" style="margin-top:20px;">
                     <div v-for="pet in knownPairCandidates" :key="pet.id" class="card" @click="confirmPairing(pet)" style="border: 2px solid var(--success); cursor:pointer;">
-                        <div style="display:flex; justify-content:space-between;">
-                            <h4>{{ pet.name }} ({{ pet.owner }})</h4>
-                            <span :class="pet.gender==='公'?'gender-m':'gender-f'">{{ pet.gender }}</span>
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                            <div>
+                                <h4 style="margin:0;">{{ getPetDisplayTitle(pet) }}</h4>
+                                <div style="font-size:11px; color:#666; margin-top:4px;">持有：{{ pet.owner }}</div>
+                            </div>
                         </div>
                         <div style="display:flex; flex-wrap:wrap; gap:4px;">
                             <span v-for="t in pet.tags" :key="t" class="tag-pill" :style="{...getTagStyle(t), fontSize:'9px'}">{{ t }}</span>
@@ -506,7 +565,7 @@
 
     <script>
         // ============================================================
-        // Vue 3 應用程式 — 寵物科學繁育系統 V11.3
+        // Vue 3 應用程式 — 寵物科學繁育系統 V12 performance cleanup
         // 功能：寵物管理、繁育佇列、詞條遺傳分析、配對推薦（串接 GAS API）
         // ============================================================
         const { createApp } = Vue;
@@ -515,7 +574,7 @@
                 return {
                     // --- 遠端 API ---
                     // Google Apps Script Web App URL（所有讀寫都走此端點）
-                    scriptUrl: 'https://script.google.com/macros/s/AKfycbyIfrY2gDsYATt7Cyfn7CC0J5rK_U_ftiZACPwjDL55wCoPTJEVR04G1jjMWkCa5pzoew/exec', 
+                    scriptUrl: 'https://script.google.com/macros/s/AKfycbycrvxygnjzkCAsSLjwjsMTJrSttEKZlb6MtgvPW8uIHAAH8ljkBRokwwePO8Ic4aydOA/exec', 
                     // --- 介面狀態 ---
                     currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
                     isLoading: false,   // 非同步期間禁用部分按鈕
@@ -544,6 +603,17 @@
                     ownerList: [],   // 持有者清單
                     breedingQueue: [],// 繁育佇列（含倒數）
                     records: [],     // 歷史子嗣紀錄（機率/統計依據）
+
+                    // --- 效能快取（V12）---
+                    // 目的：避免畫面渲染、排序、配對計算時反覆掃描 tags / pets。
+                    // 這些快取只存在前端記憶體，不寫入 Google Sheet；每次完整同步或寵物/詞條異動後重建。
+                    tagOrderMap: {},        // { tagName: orderIndex }，讓 sortTagsArray 不再每個詞條都 findIndex。
+                    tagMetaByName: {},      // { tagName: tagMeta }，讓 getTagValue / findTagMeta 減少重複搜尋。
+                    tagMetaBySpeciesName: {}, // { "species||name": tagMeta }，保留物種精準查詢能力。
+                    tagFrequencyCache: {},  // { tagName: count }，讓 rarityScore 不再每次重新掃所有 pets。
+                    tagValueCache: {},      // { tagName: score }，讓同一輪畫面渲染中重複出現的詞條直接讀快取。
+                    totalPetCountCache: 0,   // 與舊公式保持一致：稀有度分母仍使用 this.pets.length。
+                    maxColorRankForValue: 3, // 與舊 getTagValue 公式保持一致：仍用 color_rank 最大值作為主觀分縮放分母。
 
                     // --- 配對彈窗狀態 ---
                     showMatchPicker: false,  // 控制配對彈窗顯示
@@ -765,10 +835,13 @@
                     const p = this.getTaiwanDateParts(new Date());
                     return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
                 },
-                // 台灣時間戳 ID：YYYYMMDDHHmmss，中間不加底線，用於 temp_ 外部父母 ID。
+                // 台灣時間戳 ID：YYYYMMDDHHmmssSSS，中間不加底線，用於 temp_ 外部父母 ID。
+                // 加入毫秒可避免同一秒連續建立「其他人配配」時產生重複 ID。
                 getTaiwanTimestampId() {
-                    const p = this.getTaiwanDateParts(new Date());
-                    return `${p.year}${p.month}${p.day}${p.hour}${p.minute}${p.second}`;
+                    const now = new Date();
+                    const p = this.getTaiwanDateParts(now);
+                    const ms = String(now.getMilliseconds()).padStart(3, '0');
+                    return `${p.year}${p.month}${p.day}${p.hour}${p.minute}${p.second}${ms}`;
                 },
                 // 將毫秒 timestamp 顯示為台灣時間。若已是字串，直接回傳。
                 formatTaiwanDateTime(value) {
@@ -808,6 +881,110 @@
                     this.isKnownFilterExpanded = false;
                     this.otherSpecies = '';
                     this.otherSelectedTags = [];
+                },
+                // ============================================================
+                // V12 效能快取工具
+                // ============================================================
+                // 重建所有只存在前端記憶體的快取。
+                // 使用時機：
+                // 1. fetchData() 完整同步後
+                // 2. 新增 / 刪除 / 編輯寵物詞條後
+                // 3. 登記子嗣新增 pet / record 後
+                // 4. 找其他人配配新增 temp_ external pet 後
+                //
+                // 注意：這不會寫入 Google Sheet，只是讓畫面排序與評分快一點。
+                rebuildCaches() {
+                    this.rebuildTagCaches();
+                    this.rebuildPetCaches();
+                },
+                // 建立詞條排序與詞條 meta 索引。
+                // 舊版 sortTagsArray 每比較兩個詞條，就用 this.tags.findIndex() 掃一次整張 Tags；
+                // V12 改成先建立 tagOrderMap，排序時 O(1) 查詢。
+                rebuildTagCaches() {
+                    const order = {};
+                    const byName = {};
+                    const bySpeciesName = {};
+                    let maxColorRank = 3;
+
+                    (this.tags || []).forEach((tag, index) => {
+                        const name = this.normalizeKey(tag.name);
+                        const species = this.normalizeKey(tag.species);
+                        if (!name) return;
+
+                        if (order[name] === undefined) order[name] = index;
+                        if (!byName[name]) byName[name] = tag;
+                        if (species) bySpeciesName[`${species}||${name}`] = tag;
+
+                        if (tag.color_rank !== 'NA') {
+                            maxColorRank = Math.max(maxColorRank, this.safeNum(tag.color_rank, 3));
+                        }
+                    });
+
+                    this.tagOrderMap = order;
+                    this.tagMetaByName = byName;
+                    this.tagMetaBySpeciesName = bySpeciesName;
+                    this.maxColorRankForValue = maxColorRank || 3;
+
+                    // 詞條 meta 或排序改變後，舊的詞條價值快取全部失效。
+                    this.tagValueCache = {};
+                },
+                // 建立寵物詞條頻率快取。
+                // 舊版 rarityScore -> getTagFrequency 每次都重新掃 this.pets；
+                // V12 改成每次寵物資料變動後重建一次，之後所有評分共用。
+                rebuildPetCaches() {
+                    const freq = {};
+                    (this.pets || []).forEach(p => {
+                        (p.tags || []).forEach(tagName => {
+                            const key = this.normalizeKey(tagName);
+                            if (!key) return;
+                            freq[key] = (freq[key] || 0) + 1;
+                        });
+                    });
+                    this.tagFrequencyCache = freq;
+                    this.totalPetCountCache = (this.pets || []).length;
+
+                    // 寵物數或詞條頻率變動後，rarity 相關分數都要重新算。
+                    this.tagValueCache = {};
+                },
+                // 局部資料異動後呼叫，語意上比直接 rebuildCaches 更清楚。
+                invalidatePerformanceCaches() {
+                    this.rebuildCaches();
+                },
+                // 主卡 / 候選卡 / 配對確認視窗共用的寵物標題。
+                // 格式：[普通] 香長丁♂（剩2次）
+                getPetDisplayTitle(pet) {
+                    if (!pet) return '未知寵物';
+                    const rarity = pet.rarity || this.getRarityFromTags(pet.tags || []);
+                    const genderIcon = pet.gender === '公' ? '♂' : (pet.gender === '母' ? '♀' : '');
+                    const remaining = Number(pet.remaining || 0);
+                    return `[${rarity}] ${pet.name || '未命名'}${genderIcon}（剩${remaining}次）`;
+                },
+                // 配對確認視窗用：列出單方資訊，讓使用者在真正扣次數前確認是否選錯。
+                getPairConfirmPetBlock(label, pet) {
+                    const tags = (pet && pet.tags && pet.tags.length) ? pet.tags.join('、') : '無標籤';
+                    return `${label}\n${this.getPetDisplayTitle(pet)}\n持有者：${pet ? pet.owner : '未知'}\n詞條：${tags}`;
+                },
+                // 配對確認文字：三種配對入口共用。對方是其他人 external 也會顯示雙方完整資料。
+                buildPairingConfirmText(targetPet, partnerPet) {
+                    const externalNote = this.isExternalPet(partnerPet)
+                        ? '\n\n注意：對方是「其他人」資料，只會扣除我方次數；對方 remaining 固定為 0，並會以 external hidden 資料保留供遺傳分析追溯。'
+                        : '\n\n確認後會立即扣除雙方繁育次數，並進入繁育中倒數。';
+                    return `確認進入繁育倒數？\n\n${this.getPairConfirmPetBlock('【我方】', targetPet)}\n\n${this.getPairConfirmPetBlock('【對方】', partnerPet)}${externalNote}`;
+                },
+                // 判斷是否為這次「找其他人配配」建立的 temp external。
+                // 我填錯了取消時只刪除這種資料，避免誤刪正式寵物。
+                isTempExternalPet(pet) {
+                    return !!pet
+                        && String(pet.id || '').startsWith('temp_')
+                        && pet.owner === '其他人'
+                        && pet.type === 'external'
+                        && pet.source === 'external';
+                },
+                // 撤銷錯誤繁育時加回正式寵物 1 次，但最多不超過該稀有度本週上限。
+                refundRemainingFromCancelledBreeding(pet) {
+                    if (!this.isOfficialPet(pet) && pet.status !== 'breeding') return;
+                    const max = this.getInitialRemainingByRarity(this.getRarityFromTags(pet.tags || []));
+                    pet.remaining = Math.min(max, Number(pet.remaining || 0) + 1);
                 },
 
                 // --- 資料讀取 ---
@@ -872,6 +1049,9 @@
                         // 讀取 Refresh tab。GAS 可回傳物件或 key/value 陣列，前端會統一轉成 refreshMap。
                         this.upsertRefreshLocal(this.normalizeRefreshMap(data.refresh));
 
+                        // V12：先建立詞條排序 / meta / 頻率快取，下面 sortTagsArray 才能用 O(1) 查表。
+                        this.rebuildCaches();
+
                         // 排序詞條，並修正 external 其他人資料的 remaining 永遠為 0。
                         this.pets.forEach(p => {
                             p.tags = this.sortTagsArray(p.tags);
@@ -881,6 +1061,9 @@
                             }
                         });
                         this.records.forEach(r => r.tags = this.sortTagsArray(r.tags));
+
+                        // 排序不改變詞條內容，但 fetchData 完成後再重建一次，確保快取與最新資料完全一致。
+                        this.rebuildCaches();
                     } catch (e) { 
                         console.error(e); 
                     } finally { 
@@ -930,6 +1113,30 @@
                     } catch (error) {
                         console.error('資料同步失敗:', error);
                         alert('資料同步失敗，請稍後再試。');
+                    } finally {
+                        this.isLoading = false;
+                        this.syncMessage = '';
+                    }
+                },
+                // 只刷新 Breeding 表，不重抓 Pets / Tags / Records。
+                // 用於登記繁育結果前確認 pADone / pBDone，避免原本完整 fetchData 造成體感反覆同步。
+                async fetchBreedingOnly(message = '確認繁育狀態中') {
+                    this.isLoading = true;
+                    this.syncMessage = message;
+                    try {
+                        const res = await fetch(this.scriptUrl + '?action=breeding');
+                        const data = await res.json();
+                        this.breedingQueue = (data.breeding || []).map(b => ({
+                            ...b,
+                            remainingTime: Math.max(0, Number(b.end) - Date.now()),
+                            pADone: b.pADone === true || String(b.pADone).toUpperCase() === 'TRUE',
+                            pBDone: b.pBDone === true || String(b.pBDone).toUpperCase() === 'TRUE'
+                        }));
+                        return true;
+                    } catch (e) {
+                        console.error('確認繁育狀態失敗', e);
+                        alert('網路不穩，無法確認最新繁育狀態，請稍後再試。');
+                        return false;
                     } finally {
                         this.isLoading = false;
                         this.syncMessage = '';
@@ -1004,7 +1211,8 @@
                     });
                     if (!hasTypeTag) return alert("請至少勾選對方的種類標籤！");
                     const tempOther = this.createExternalParentPet();
-                    this.pets.push(tempOther);
+                    // 不先寫入 pets。若使用者在確認視窗取消，就不留下任何 temp_ external 暫存資料。
+                    // confirmPairing() 會在使用者確認後才把 external 資料加入 pets 並送到 GAS。
                     this.confirmPairing(tempOther);
                 },
                 safeNum(v, d = 0) {
@@ -1060,16 +1268,16 @@
                     if (next) return next;
                     return candidates.find(t => t.color_rank !== 'NA' && this.safeNum(t.color_rank, 3) === 3) || null;
                 },
-                // 👉 新增這個排序方法
-                // 👉 替換成這個極簡版的 sortTagsArray
+                // V12：詞條排序。
+                // 舊版每次比較都用 this.tags.findIndex() 掃完整 Tags 表；資料量大時會拖慢同步後整理。
+                // 新版改用 tagOrderMap 快取，查詢成本接近 O(1)，結果排序與原本相同。
                 sortTagsArray(tags) {
-                    return tags.sort((a, b) => {
-                        // 直接去 this.tags (已經完美排序過的大表) 裡面找這個詞條排在第幾位
-                        const indexA = this.tags.findIndex(t => t.name === a || t.name === a.replace(/^無/, ''));
-                        const indexB = this.tags.findIndex(t => t.name === b || t.name === b.replace(/^無/, ''));
-                        
-                        // 誰在系統大表裡的位置越前面 (index 越小)，誰就排在前面！
-                        return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
+                    return [...(tags || [])].sort((a, b) => {
+                        const keyA = this.normalizeKey(String(a || '').replace(/^無/, ''));
+                        const keyB = this.normalizeKey(String(b || '').replace(/^無/, ''));
+                        const indexA = this.tagOrderMap[keyA] ?? 999999;
+                        const indexB = this.tagOrderMap[keyB] ?? 999999;
+                        return indexA - indexB;
                     });
                 },
                 applyRankDegradation(rows, candidates, category) {
@@ -1222,54 +1430,60 @@
                     });
                     return all;
                 },
+                // V12：回傳目前詞條頻率快取。
+                // 保留方法名稱，讓既有邏輯不用改；但不再每次重新掃描 this.pets。
                 getTagFrequency() {
-                    const freq = {};
-                    this.pets.forEach(p => (p.tags || []).forEach(t => freq[t] = (freq[t] || 0) + 1));
-                    return freq;
+                    return this.tagFrequencyCache || {};
                 },
+                // V12：稀有度分數改讀快取。
+                // 公式保持與舊版一致：Math.log((totalPets + 1) / (count + 1)) + 1。
                 rarityScore(tagName) {
-                    const totalPets = this.pets.length;
+                    const totalPets = this.totalPetCountCache || this.pets.length;
                     if (!totalPets) return 1;
+                    const key = this.normalizeKey(tagName);
                     const freq = this.getTagFrequency();
-                    const count = this.safeNum(freq[tagName], 0);
+                    const count = this.safeNum(freq[key], 0);
                     return Math.max(1, Math.log((totalPets + 1) / (count + 1)) + 1);
                 },
+                // V12：詞條價值加上 tagValueCache。
+                // 同一個詞條在主卡、候選卡、分析區會被反覆計算；快取後同輪資料只算一次。
+                // 為了保持結果相似，保留原本公式與原本 maxRank 來源（color_rank 最大值）。
                 getTagValue(tagName) {
-                    const info = this.tags.find(t => t.name === tagName);
+                    const key = this.normalizeKey(tagName);
+                    if (!key) return 1;
+                    if (this.tagValueCache[key] !== undefined) return this.tagValueCache[key];
+
+                    const info = this.tagMetaByName[key] || this.tags.find(t => this.normalizeKey(t.name) === key);
                     if (!info) return 1;
 
                     // --- 1. 線性主觀分計算 ---
-                 // 找出目前所有標籤中最大的 Rank 作為分母，確保動態適應你的 Tags 表
-                    const allRanks = this.tags.map(t => this.safeNum(t.color_rank, 3));
-                    const maxRank = Math.max(...allRanks, 3); // 至少為 3 (橘紅級)
-
+                    // 保留舊版行為：maxRank 仍取 color_rank 最大值，不改動評分結果的相對邏輯。
+                    const maxRank = this.maxColorRankForValue || 3;
                     const currentRank = this.safeNum(info.subjective_rank ?? info.subject_rank, 1);
-
-                    // 公式：確保 Rank 1 得到最高分，且每階差距固定
-                    // 使用 Math.max 確保分數不會變成負數
-                const subjectiveScore = Math.max(0.05, (maxRank - currentRank + 1) / maxRank);
+                    const subjectiveScore = Math.max(0.05, (maxRank - currentRank + 1) / maxRank);
 
                     // --- 2. 稀有度正規化 ---
-                    // 將 ln 得到的稀有度縮放到 0~1 之間
-                    const rawRarity = this.rarityScore(tagName);
-                    // 理論最大稀有度：當全服只有 1 隻寵物擁有時
-                    const maxPossibleRarity = Math.log(this.pets.length + 1) + 1; 
+                    const rawRarity = this.rarityScore(key);
+                    const totalPets = this.totalPetCountCache || this.pets.length;
+                    const maxPossibleRarity = Math.log(totalPets + 1) + 1;
                     const normalizedRarity = rawRarity / (maxPossibleRarity || 1);
 
                     // --- 3. 綜合加權 (0.7 / 0.3) ---
-                    // 此時兩者皆在 0~1 之間，加權比例將會非常精準
-                    return (0.7 * subjectiveScore) + (0.3 * normalizedRarity);
+                    const value = (0.7 * subjectiveScore) + (0.3 * normalizedRarity);
+                    this.tagValueCache[key] = value;
+                    return value;
                 },
                 findTagMeta(tagName, species = '') {
                     const keyName = this.normalizeKey(tagName);
                     const keySpecies = this.normalizeKey(species);
-                    const exact = this.tags.find(t => {
-                        if (this.normalizeKey(t.name) !== keyName) return false;
-                        if (!keySpecies) return true;
-                        return this.normalizeKey(t.species) === keySpecies;
-                    });
-                    if (exact) return exact;
-                    return this.tags.find(t => this.normalizeKey(t.name) === keyName) || null;
+                    if (!keyName) return null;
+
+                    // 先走物種 + 詞條名稱精準索引；沒有 species 時走名稱索引。
+                    if (keySpecies) {
+                        const exact = this.tagMetaBySpeciesName[`${keySpecies}||${keyName}`];
+                        if (exact) return exact;
+                    }
+                    return this.tagMetaByName[keyName] || this.tags.find(t => this.normalizeKey(t.name) === keyName) || null;
                 },
                 inferSpeciesFromTags(tags) {
                     const scores = {};
@@ -1909,6 +2123,7 @@
                         father: '', mother: ''
                     };
                     this.pets.push(newPet);
+                    this.invalidatePerformanceCaches();
                     this.sendBatch({ upsertPets: [newPet] }); // 🔴 只傳送新增的這隻寵物給後端
                     this.form.name = ''; this.form.selectedTags = []; this.form.type = 'good';
                 },
@@ -1938,18 +2153,10 @@
                             if (this.singleChild.tags.length < catCount) return alert("標籤分類必選！");
                         }
 
-                        this.isLoading = true;
-                        this.syncMessage = '登記結果同步中';
-
-                        // 2. 寫入前先拉最新 breeding 狀態，避免雙方同時操作造成重複歸位或重複刪除。
-                        const res = await fetch(this.scriptUrl);
-                        const data = await res.json();
-                        this.breedingQueue = (data.breeding || []).map(b => ({
-                            ...b,
-                            remainingTime: Math.max(0, Number(b.end) - Date.now()),
-                            pADone: b.pADone === true || b.pADone === "TRUE",
-                            pBDone: b.pBDone === true || b.pBDone === "TRUE"
-                        }));
+                        // 2. 寫入前只拉最新 Breeding 狀態，不重抓 Pets / Tags / Records。
+                        // 這保留雙方同時操作的安全檢查，也避免原本完整 fetchData 造成「反覆載入」體感。
+                        const ok = await this.fetchBreedingOnly('確認繁育狀態中');
+                        if (!ok) return;
 
                         const currentItem = this.breedingQueue.find(x => x.id == oldItem.id);
                         if (!currentItem) {
@@ -1958,6 +2165,9 @@
                             await this.fetchData();
                             return;
                         }
+
+                        this.isLoading = true;
+                        this.syncMessage = '登記結果同步中';
 
                         const p = this.getPet(currentItem[side]);
                         const other = this.getPet(side === 'pA' ? currentItem.pB : currentItem.pA);
@@ -1980,6 +2190,7 @@
                                 father: fatherId, mother: motherId
                             };
                             this.pets.push(newChild);
+                            this.invalidatePerformanceCaches();
                             payload.upsertPets.push(newChild);
 
                             const newRecord = {
@@ -2010,8 +2221,8 @@
                         }
 
                         this.showResultModal = false;
-                        await this.sendBatch(payload);
-                        await this.fetchData();
+                        await this.sendBatch(payload, '登記結果同步中', 1200);
+                        // 不再完整 fetchData()。本地狀態已同步更新，避免登記結果後再重抓整包資料造成等待過久。
                     } catch (e) {
                         console.error("登記結果失敗", e);
                         alert("資料同步失敗，請稍後再試。若資料已寫入，請先同步數據確認。 ");
@@ -2053,12 +2264,22 @@
                     // 確認配對後：建立繁育中資料、雙方狀態更新，並立即扣除正式寵物 remaining。
                     // 其他人/external 父母資料會保留在 Pets 供追溯，但 remaining 永遠為 0，不參與扣次數。
                     if (!this.matchingTarget || !p) return;
-                    if (!confirm(`開始繁育計時？`)) return;
 
                     const now = Date.now();
                     const targetPet = this.pets.find(x => x.id == this.matchingTarget.id);
-                    const partnerPet = this.pets.find(x => x.id == p.id);
+                    let partnerPet = this.pets.find(x => x.id == p.id);
+                    const partnerAlreadyInPets = !!partnerPet;
+                    if (!partnerPet) partnerPet = p;
                     if (!targetPet || !partnerPet) return alert('找不到配對寵物資料，請先同步數據後再試。');
+
+                    // 詳細確認視窗：所有配對入口都顯示雙方持有者、名稱、剩餘次數與詞條。
+                    if (!confirm(this.buildPairingConfirmText(targetPet, partnerPet))) return;
+
+                    // external 其他人資料只有在使用者確認後才加入本地 pets，避免取消確認後留下孤兒 temp_ 資料。
+                    if (!partnerAlreadyInPets) {
+                        this.pets.push(partnerPet);
+                        this.invalidatePerformanceCaches();
+                    }
 
                     const newBreeding = {
                         id: now.toString(),
@@ -2083,7 +2304,7 @@
                     this.sendBatch({
                         upsertBreeding: [newBreeding],
                         upsertPets: [targetPet, partnerPet]
-                    });
+                    }, '建立繁育倒數中', 1000);
                 },
                 // 開啟單側結果登記彈窗。種類不再預選，必須由使用者主動勾選。
                 openSingleResultModal(item, side) {
@@ -2098,6 +2319,48 @@
                     const owner = this.getPet(this.resultTarget.item[this.resultTarget.side]).owner;
                     this.singleChild.name = this.getAutoIndexedName(owner, this.singleChild.name, this.singleChild.tags.filter(t => !t.startsWith('無')), this.singleChild.gender);
                 },
+                // 我填錯了：撤銷尚未登記結果的繁育資料。
+                // 僅允許 pADone / pBDone 都還沒完成時使用；已有結果時不自動回復，避免誤刪子嗣與 Records。
+                async cancelWrongBreeding(item) {
+                    if (this.isLoading) return;
+                    if (!item) return;
+                    if (item.pADone || item.pBDone) {
+                        alert('此繁育已有結果登記，不能用「我填錯了」直接取消。');
+                        return;
+                    }
+
+                    const petA = this.getPet(item.pA);
+                    const petB = this.getPet(item.pB);
+                    const msg = `確定要取消這筆繁育登記嗎？\n\n${this.getPairConfirmPetBlock('【A 方】', petA)}\n\n${this.getPairConfirmPetBlock('【B 方】', petB)}\n\n系統會移除此筆繁育倒數，正式寵物歸位並加回 1 次；若有 temp_ 其他人 external 資料，會直接從 Pets 刪除。`;
+                    if (!confirm(msg)) return;
+
+                    const payload = { upsertPets: [], deletePets: [], deleteBreeding: [item.id] };
+                    [petA, petB].forEach(p => {
+                        if (!p) return;
+                        if (this.isTempExternalPet(p)) {
+                            payload.deletePets.push(p.id);
+                            return;
+                        }
+                        // 正式寵物：歸位 active，並加回剛剛因進入繁育中而扣除的 1 次。
+                        p.status = 'active';
+                        this.refundRemainingFromCancelledBreeding(p);
+                        payload.upsertPets.push(p);
+                    });
+
+                    // 本地立即更新，讓畫面不需要完整 fetchData() 也能反映結果。
+                    this.breedingQueue = this.breedingQueue.filter(x => x.id != item.id);
+                    if (payload.deletePets.length) {
+                        const delSet = new Set(payload.deletePets.map(String));
+                        this.pets = this.pets.filter(p => !delSet.has(String(p.id)));
+                        this.invalidatePerformanceCaches();
+                    }
+
+                    await this.sendBatch(payload, '取消錯誤繁育登記中', 1000);
+                    alert(payload.deletePets.length
+                        ? '已取消此筆繁育登記，正式寵物已歸位並加回次數；其他人 external 配對資料已刪除。'
+                        : '已取消此筆繁育登記，正式寵物已歸位並加回次數。');
+                },
+
                 // 強制結束倒數（測試/校正用）
                 forceEnd(item) {
                     item.end = Date.now();
@@ -2197,12 +2460,14 @@
                     p.tags = this.sortTagsArray(p.tags);
                     p.rarity = this.getRarityFromTags(p.tags);
                     p.isEditing = false;
+                    this.invalidatePerformanceCaches();
                     this.sendBatch({ upsertPets: [p] }); // 🔴 只傳送修改的這隻寵物
                 },
                 // 刪除寵物（確認後）
                 deletePet(id) {
                     if(confirm("確定刪除？")) {
                         this.pets = this.pets.filter(p => p.id != id);
+                        this.invalidatePerformanceCaches();
                         this.sendBatch({ deletePets: [id] }); // 🔴 告訴後端刪除這個 ID
                     }
                 }
