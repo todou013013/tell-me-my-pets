@@ -821,7 +821,7 @@
                 return {
                     // --- 遠端 API ---
                     // Google Apps Script Web App URL（所有讀寫都走此端點）
-                    scriptUrl: 'https://script.google.com/macros/s/AKfycbxQ8tmLLqJVwjPLjlaIw4vG1ubRDVpi43DQJK33TDhFLV7IHiR_Yr1CvRfkE2exN0gyLg/exec', 
+                    scriptUrl: 'https://script.google.com/macros/s/AKfycbx5XgxgoAu4QUsLxL8jlJXCawnCYkeRrR1llW1iWSUSOteZoApRZdX4Zl80qQ3WfsCaqw/exec', 
                     // --- 介面狀態 ---
                     currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
                     isLoading: false,   // 非同步期間禁用部分按鈕
@@ -1819,6 +1819,34 @@
                     return { species: '', category: '', name: value, raw: value, encoded: false };
                 },
                 displayTagName(raw) { return this.splitStoredTag(raw).name; },
+                // 將新格式與舊格式詞條統一成可比對的標準 key。
+                // 新格式：物種::分類::詞條名；舊格式：詞條名。
+                // 這些工具讓舊資料繼續可用，也讓之後遺傳分析 / 配對推薦避免直接用 includes() 誤判。
+                getCanonicalTagKey(raw, species = '', category = '') {
+                    const info = this.splitStoredTag(raw);
+                    if (!info.name || String(info.name).startsWith('無')) return this.normalizeKey(info.name || raw);
+                    const meta = this.findTagMeta ? this.findTagMeta(raw, species) : null;
+                    if (meta) return this.makeStoredTag(meta.category, meta.name, meta.species);
+                    if (info.encoded) return this.makeStoredTag(info.category || category, info.name, info.species || species);
+                    return this.normalizeKey(info.name);
+                },
+                getTagComparableKeys(raw, species = '') {
+                    const keys = [];
+                    const add = v => { const k = this.normalizeKey(v); if (k && !keys.includes(k)) keys.push(k); };
+                    const info = this.splitStoredTag(raw);
+                    add(raw);
+                    add(info.name);
+                    add(this.getCanonicalTagKey(raw, species));
+                    const meta = this.findTagMeta ? this.findTagMeta(raw, species) : null;
+                    if (meta) {
+                        add(this.makeStoredTag(meta.category, meta.name, meta.species));
+                        add(`${meta.species}||${meta.category}||${meta.name}`);
+                    }
+                    return keys;
+                },
+                tagListHas(list, target, category = '', species = '') {
+                    return (list || []).some(raw => this.tagMatches(raw, target, category, species));
+                },
                 makeStoredTag(category, name, species = '') {
                     const cleanSpecies = this.normalizeKey(species);
                     const cleanName = this.normalizeKey(name);
@@ -1883,13 +1911,10 @@
                         return true;
                     });
                 },
-                toSet(arr) {
+                toSet(arr, species = '') {
                     const out = {};
                     (arr || []).forEach(x => {
-                        const k = this.normalizeKey(x);
-                        const plain = this.normalizeKey(this.displayTagName(x));
-                        if (k) out[k] = true;
-                        if (plain) out[plain] = true;
+                        this.getTagComparableKeys(x, species).forEach(k => out[k] = true);
                     });
                     return out;
                 },
@@ -2058,8 +2083,8 @@
                         const empirical = this.getEmpiricalCategoryStats(species, cat, candidates, father, mother, ownerContext);
 
                         let rows = candidates.map(tag => {
-                            const inFather = !!fatherSet[tag.name];
-                            const inMother = !!motherSet[tag.name];
+                            const inFather = this.tagListHas(father.tags || [], tag.name, cat, species);
+                            const inMother = this.tagListHas(mother.tags || [], tag.name, cat, species);
                             const w = empirical.useEmpirical
                                 ? this.safeNum(empirical.probByTag[tag.name], 0) * 100
                                 : this.getBaseWeight(tag, inFather, inMother);
@@ -2155,6 +2180,8 @@
                 inferSpeciesFromTags(tags) {
                     const scores = {};
                     (tags || []).forEach(tagName => {
+                        const info = this.splitStoredTag(tagName);
+                        if (info.species) scores[this.normalizeKey(info.species)] = (scores[this.normalizeKey(info.species)] || 0) + 120;
                         const keyName = this.normalizeKey(this.displayTagName(tagName));
                         this.tags
                             .filter(t => this.normalizeKey(t.name) === keyName)
@@ -2218,7 +2245,7 @@
                     (desiredTags || []).forEach(tagName => {
                         const meta = this.findTagMeta(tagName, species);
                         const cat = this.normalizeKey(meta ? meta.category : '');
-                        const normalizedTag = this.normalizeKey(tagName);
+                        const normalizedTag = this.getCanonicalTagKey(tagName, species, cat);
                         if (!cat) return;
                         if (!selectedByCategory[cat]) selectedByCategory[cat] = [];
                         selectedByCategory[cat].push(normalizedTag);
@@ -2249,8 +2276,8 @@
                     const selectedByCategory = this.getDesiredTagsByCategory(desiredTags, species);
                     const categories = Object.keys(selectedByCategory);
                     const normalizedDesiredTags = this.unique(desiredTags || []);
-                    const combined = this.toSet([...(targetPet.tags || []), ...(candidatePet.tags || [])]);
-                    const missingCategories = categories.filter(cat => !selectedByCategory[cat].some(tag => !!combined[tag]));
+                    const combinedTags = [...(targetPet.tags || []), ...(candidatePet.tags || [])];
+                    const missingCategories = categories.filter(cat => !selectedByCategory[cat].some(tag => this.tagListHas(combinedTags, tag, cat, species)));
                     const sharedPass = categories.length > 0 && missingCategories.length === 0;
                     const missingDetails = missingCategories.map(cat => {
                         const selected = selectedByCategory[cat] || [];
@@ -2258,7 +2285,7 @@
                             const meta = this.findTagMeta(tagName, species);
                             return meta && meta.category === cat;
                         });
-                        return `${cat}（目標: ${selected.join('、') || '無'} / 聯集: ${owned.join('、') || '無'}）`;
+                        return `${cat}（目標: ${selected.map(this.displayTagName).join('、') || '無'} / 聯集: ${owned.map(this.displayTagName).join('、') || '無'}）`;
                     });
 
                     if (targetPet && (targetPet.type === 'normal' || targetPet.type === 'good') && desiredTags.length) {
@@ -2283,8 +2310,8 @@
                     const selectedByCategory = this.getDesiredTagsByCategory(desiredTags, species);
                     const categories = Object.keys(selectedByCategory);
                     if (!categories.length) return false;
-                    const combined = this.toSet([...(targetPet.tags || []), ...(candidatePet.tags || [])]);
-                    return categories.every(cat => selectedByCategory[cat].some(tag => !!combined[tag]));
+                    const combinedTags = [...(targetPet.tags || []), ...(candidatePet.tags || [])];
+                    return categories.every(cat => selectedByCategory[cat].some(tag => this.tagListHas(combinedTags, tag, cat, species)));
                 },
                 isNormalTargetSatisfiedByCombinedTags(targetPet, candidatePet, desiredTags) {
                     if (!desiredTags || !desiredTags.length) return false;
@@ -2293,15 +2320,16 @@
                     const categories = Object.keys(selectedByCategory);
                     if (!categories.length) return false;
 
-                    const combined = this.toSet([...(targetPet.tags || []), ...(candidatePet.tags || [])]);
-                    return categories.every(cat => selectedByCategory[cat].some(tag => !!combined[tag]));
+                    const combinedTags = [...(targetPet.tags || []), ...(candidatePet.tags || [])];
+                    return categories.every(cat => selectedByCategory[cat].some(tag => this.tagListHas(combinedTags, tag, cat, species)));
                 },
                 calculatePairScore(parentA, parentB, desiredTags = []) {
                     const ownerContext = String(parentA.owner || parentB.owner || '');
                     const inh = this.calculateInheritance(parentA, parentB, ownerContext);
-                    const desired = this.toSet(desiredTags);
-                    const aSet = this.toSet(parentA.tags || []);
-                    const bSet = this.toSet(parentB.tags || []);
+                    const species = this.getSpeciesOfPet(parentA) || this.getSpeciesOfPet(parentB);
+                    const desired = this.toSet(desiredTags, species);
+                    const aSet = this.toSet(parentA.tags || [], species);
+                    const bSet = this.toSet(parentB.tags || [], species);
 
                     let total = 0;
                     const duplicated = [];
@@ -2309,13 +2337,14 @@
 
                     this.flattenInheritance(inh).forEach(g => {
                         let factor = 1;
-                        if (desired[g.name]) {
+                        const gKey = this.makeStoredTag(g.category || '', g.name, species || '');
+                        if (desired[g.name] || desired[gKey]) {
                             factor *= 2.0;
-                            matched.push(g.name);
+                            matched.push(gKey || g.name);
                         }
-                        if (aSet[g.name] && bSet[g.name]) {
+                        if ((aSet[g.name] || aSet[gKey]) && (bSet[g.name] || bSet[gKey])) {
                             factor *= 1.2;
-                            duplicated.push(g.name);
+                            duplicated.push(gKey || g.name);
                         }
                         total += (this.safeNum(g.prob, 0) / 100) * this.getTagValue(g.name) * factor;
                     });
@@ -2763,7 +2792,10 @@
                         const predictedTopTags = this.getParentUnionPreview(scoreResult.inheritance, this.matchingTarget, p);
                         const tagProbMap = {};
                         flat.forEach(x => {
-                            tagProbMap[x.name] = this.round2(x.prob);
+                            const p = this.round2(x.prob);
+                            tagProbMap[x.name] = p;
+                            tagProbMap[this.displayTagName(x.name)] = p;
+                            tagProbMap[this.makeStoredTag(x.category || '', x.name, pool.species || '')] = p;
                         });
 
                         const outcome = this.explainMatchOutcome(this.matchingTarget, p, this.desiredTags, scoreResult);
@@ -2801,7 +2833,9 @@
                 },
                 getMatchTagProb(res, tagName) {
                     if (!res || !res.tagProbMap) return 0;
-                    return Math.round(this.safeNum(res.tagProbMap[tagName], 0));
+                    const key = this.normalizeKey(tagName);
+                    const plain = this.normalizeKey(this.displayTagName(tagName));
+                    return Math.round(this.safeNum(res.tagProbMap[key] ?? res.tagProbMap[plain], 0));
                 },
                 toggleMatchAnalysis(petId) {
                     const key = String(petId || '');
