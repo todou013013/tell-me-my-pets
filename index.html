@@ -128,7 +128,7 @@
             <button class="tab-btn" :class="{active: currentTab==='main'}" @click="currentTab='main'">❤️ 好胚</button>
             <button class="tab-btn" :class="{active: currentTab==='pu'}" @click="currentTab='pu'">🩵 普普</button>
             <button class="tab-btn" :class="{active: currentTab==='breeding'}" @click="currentTab='breeding'">🥚 繁育中 ({{ breedingQueue.length }})</button>
-            <button class="tab-btn" :class="{active: currentTab==='todayBabies'}" @click="currentTab='todayBabies'">🍼 今日新寶寶</button>
+            <button class="tab-btn" :class="{active: currentTab==='todayBabies'}" @click="currentTab='todayBabies'">🍼 本週新寶寶</button>
             <button class="tab-btn" :class="{active: currentTab==='analysis'}" @click="currentTab='analysis'">📊 遺傳分析</button>
             <button class="tab-btn" :class="{active: currentTab==='singleDetail'}" @click="currentTab='singleDetail'">🧬 單體明細</button>
             <button class="tab-btn" :class="{active: currentTab==='stats'}" @click="currentTab='stats'">📒 紀錄統計</button>
@@ -337,13 +337,15 @@
             <div class="card">
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
                     <div>
-                        <h3 style="margin:0;">🍼 今日新寶寶</h3>
+                        <h3 style="margin:0;">🍼 本週新寶寶</h3>
                         <p class="muted-note" style="margin:6px 0 0 0;">
-                            依照 Pets.CreatedAt 的台灣日期自動更新。淺灰底＝手動登記；白底＝繁育結果。
+                            依照 Pets.CreatedAt 的台灣時間自動更新。每週一早上 05:00 刷新；淺灰底＝手動登記；白底＝繁育結果。
                         </p>
                     </div>
                     <div class="muted-note">
-                        今日共 {{ todayNewBabies.length }} 隻
+                        本週共 {{ weeklyNewBabies.length }} 隻
+                        <br>
+                        週期：{{ weeklyNewBabiesRangeLabel }}
                     </div>
                 </div>
 
@@ -357,8 +359,8 @@
                         </tr>
                     </thead>
 
-                    <tbody v-if="todayNewBabies.length">
-                        <tr v-for="baby in todayNewBabies"
+                    <tbody v-if="weeklyNewBabies.length">
+                        <tr v-for="baby in weeklyNewBabies"
                             :key="baby.id"
                             :style="{ background: baby.birthMethod === 'manual' ? '#f1f1f1' : '#ffffff' }">
                             <td>{{ baby.owner }}</td>
@@ -388,7 +390,7 @@
                     <tbody v-else>
                         <tr>
                             <td colspan="4" class="muted-note" style="padding:14px;">
-                                今天還沒有新增寶寶。
+                                本週還沒有新增寶寶。
                             </td>
                         </tr>
                     </tbody>
@@ -1079,13 +1081,25 @@
                 uniqueAllTags() {
                     return [...new Set(this.tags.map(t => t.name))].sort();
                 },
-                todayNewBabies() {
-                    const todayKey = this.getTaiwanDateKey();
+                weeklyNewBabies() {
+                    const window = this.getCurrentBabyWeekWindow();
 
                     return (this.pets || [])
                         .filter(p => this.isOfficialPet(p))
-                        .filter(p => this.getDateKeyFromDateTime(p.createdAt) === todayKey)
-                        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+                        .filter(p => {
+                            const t = this.getTaiwanWallMsFromDateTime(p.createdAt);
+                            return Number.isFinite(t) && t >= window.startMs && t < window.endMs;
+                        })
+                        .sort((a, b) => {
+                            const tb = this.getTaiwanWallMsFromDateTime(b.createdAt);
+                            const ta = this.getTaiwanWallMsFromDateTime(a.createdAt);
+                            return tb - ta;
+                        });
+                },
+
+                weeklyNewBabiesRangeLabel() {
+                    const window = this.getCurrentBabyWeekWindow();
+                    return `${this.formatTaiwanWallMs(window.startMs)} ～ ${this.formatTaiwanWallMs(window.endMs - 1000)}`;
                 },
                 fubaoAnimalFormOptions() {
                     return this.getAnimalFormOptionsBySpecies('福寶寶');
@@ -1567,6 +1581,105 @@
                 getTaiwanNowString() {
                     const p = this.getTaiwanDateParts(new Date());
                     return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+                },
+                taiwanPartsToWallMs(parts) {
+                    if (!parts) return NaN;
+
+                    const y = Number(parts.year);
+                    const m = Number(parts.month);
+                    const d = Number(parts.day);
+                    const h = Number(parts.hour || 0) % 24;
+                    const mi = Number(parts.minute || 0);
+                    const s = Number(parts.second || 0);
+
+                    if (!y || !m || !d) return NaN;
+
+                    // 這裡不是轉真實 UTC，而是把「台灣牆上時間」轉成可比較的數字。
+                    // 目的：讓 2026-06-02 01:08:29 可以直接跟「週一 05:00」比較。
+                    return Date.UTC(y, m - 1, d, h, mi, s);
+                },
+
+                getTaiwanWallMsFromDateTime(value) {
+                    if (!value) return NaN;
+
+                    // 如果前端拿到的是 Date 物件
+                    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+                        return this.taiwanPartsToWallMs(this.getTaiwanDateParts(value));
+                    }
+
+                    const text = String(value || '').trim();
+                    if (!text) return NaN;
+
+                    // 情況 A：你自己存的台灣時間文字
+                    // 例如：2026-06-02 1:08:29 或 2026-06-02 01:08:29
+                    // 這種直接當台灣時間解析。
+                    if (!text.includes('T') && !text.endsWith('Z')) {
+                        const m = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+                        if (m) {
+                            return this.taiwanPartsToWallMs({
+                                year: m[1],
+                                month: String(m[2]).padStart(2, '0'),
+                                day: String(m[3]).padStart(2, '0'),
+                                hour: String(m[4] || '0').padStart(2, '0'),
+                                minute: String(m[5] || '0').padStart(2, '0'),
+                                second: String(m[6] || '0').padStart(2, '0')
+                            });
+                        }
+                    }
+
+                    // 情況 B：Google Sheet / GAS 可能回傳 ISO
+                    // 例如：2026-06-01T17:08:29.000Z
+                    // 這代表台灣時間 2026-06-02 01:08:29，所以要先轉台灣 parts。
+                    const dt = new Date(text);
+                    if (Number.isNaN(dt.getTime())) return NaN;
+
+                    return this.taiwanPartsToWallMs(this.getTaiwanDateParts(dt));
+                },
+
+                getCurrentBabyWeekWindow() {
+                    const nowParts = this.getTaiwanDateParts(new Date());
+                    const nowMs = this.taiwanPartsToWallMs(nowParts);
+
+                    const y = Number(nowParts.year);
+                    const m = Number(nowParts.month);
+                    const d = Number(nowParts.day);
+
+                    // 台灣今天 00:00 的牆上時間
+                    const today00 = Date.UTC(y, m - 1, d, 0, 0, 0);
+
+                    // 取得今天是星期幾：Sun=0, Mon=1, ...
+                    const day = new Date(today00).getUTCDay();
+
+                    // 轉成「距離本週一幾天」：Mon=0, Tue=1, ..., Sun=6
+                    const daysSinceMonday = (day + 6) % 7;
+
+                    // 本週一 05:00
+                    let startMs = today00 - daysSinceMonday * 86400000 + 5 * 3600000;
+
+                    // 如果現在還沒到本週一 05:00，例如週一凌晨 02:00，
+                    // 那仍然算上一週。
+                    if (nowMs < startMs) {
+                        startMs -= 7 * 86400000;
+                    }
+
+                    return {
+                        startMs,
+                        endMs: startMs + 7 * 86400000
+                    };
+                },
+
+                formatTaiwanWallMs(ms) {
+                    if (!Number.isFinite(ms)) return '';
+
+                    const d = new Date(ms);
+                    const y = d.getUTCFullYear();
+                    const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+                    const day = String(d.getUTCDate()).padStart(2, '0');
+                    const h = String(d.getUTCHours()).padStart(2, '0');
+                    const mi = String(d.getUTCMinutes()).padStart(2, '0');
+                    const s = String(d.getUTCSeconds()).padStart(2, '0');
+
+                    return `${y}-${mo}-${day} ${h}:${mi}:${s}`;
                 },
                 // 台灣時間戳 ID：YYYYMMDDHHmmssSSS，中間不加底線，用於 temp_ 外部父母 ID。
                 // 加入毫秒可避免同一秒連續建立「其他人配配」時產生重複 ID。
