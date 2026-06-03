@@ -2177,7 +2177,14 @@
                     return s.split(',').map(x => x.trim()).filter(Boolean);
                 },
                 normalizeKey(v) {
-                    return String(v || '').trim();
+                    if (v === null || v === undefined) return '';
+                    return String(v)
+                        .normalize('NFKC')
+                        .replace(/\u3000/g, ' ')
+                        .trim();
+                },
+                normalizeCategoryKey(category) {
+                    return this.normalizeKey(category);
                 },
                 // ------------------------------------------------------------
                 // 詞條儲存 key 工具
@@ -2338,40 +2345,71 @@
                 makeStoredTag(category, name, species = '') {
                     const cleanSpecies = this.normalizeKey(species);
                     const cleanName = this.normalizeKey(name);
-                    const cleanCat = this.normalizeKey(category);
+                    const cleanCat = this.normalizeCategoryKey(category);
                     if (!cleanName) return '';
                     // 「無X」是特殊佔位詞條，保留原樣即可。
                     if (String(cleanName).startsWith('無')) return cleanName;
                     // 一律帶 species + category，避免不同分類、不同物種、甚至不同名稱但清單推斷錯誤時互相影響。
                     return `${cleanSpecies}${this.tagStorageSeparator()}${cleanCat}${this.tagStorageSeparator()}${cleanName}`;
                 },
+                isLegacyCategoryMatch(oldCategory, newCategory, tagName = '') {
+                    const oldCat = this.normalizeKey(oldCategory);
+                    const newCat = this.normalizeKey(newCategory);
+                    const name = this.normalizeKey(tagName);
+
+                    // 完全相同一定通過
+                    if (oldCat === newCat) return true;
+
+                    // 只允許「舊體型」被新「體型II」認得
+                    // 不改顯示、不改儲存，只在比對時相容
+                    if (
+                        oldCat === '體型' &&
+                        newCat === '體型II' &&
+                        name === '長耳'
+                    ) {
+                        return true;
+                    }
+
+                    return false;
+                },
                 tagMatches(raw, name, category = '', species = '') {
                     const info = this.splitStoredTag(raw);
                     const target = this.splitStoredTag(name);
+
                     const keyName = this.normalizeKey(target.name);
                     const keyCat = this.normalizeKey(category || target.category);
                     const keySpecies = this.normalizeKey(species || target.species);
 
+                    if (!keyName) return false;
                     if (this.normalizeKey(info.name) !== keyName) return false;
 
-                    // encoded 新資料：可精準比對物種 / 分類 / 名稱。
+                    // 新格式：物種::分類::詞條名
+                    // 正常精準比對，但允許舊「體型｜長耳」被新「體型II｜長耳」命中。
                     if (info.encoded) {
                         if (keySpecies && info.species && this.normalizeKey(info.species) !== keySpecies) return false;
-                        if (keyCat && this.normalizeKey(info.category) !== keyCat) return false;
+
+                        if (keyCat && !this.isLegacyCategoryMatch(info.category, keyCat, keyName)) {
+                            return false;
+                        }
+
                         return true;
                     }
 
-                    // 若沒有指定分類，只比對名稱，供舊資料顯示 / 搜尋 fallback 使用。
+                    // 舊格式：只有詞條名，例如「長耳」
                     if (!keyCat) return true;
 
-                    // 舊資料相容：純名稱詞條無法自帶分類，只在 Tags 表中能唯一定位時才視為符合。
-                    // 若有多個候選，保守回傳 false，避免選 A 分類時刪到 B 分類。
                     const candidates = (this.tags || []).filter(t =>
-                        this.normalizeKey(t.name) === this.normalizeKey(info.name) &&
+                        this.normalizeKey(t.name) === keyName &&
                         (!keySpecies || this.normalizeKey(t.species) === keySpecies)
                     );
-                    if (candidates.length === 1) return this.normalizeKey(candidates[0].category) === keyCat;
-                    return false;
+
+                    if (candidates.length === 1) {
+                        return this.isLegacyCategoryMatch(candidates[0].category, keyCat, keyName);
+                    }
+
+                    return candidates.some(t =>
+                        this.isLegacyCategoryMatch(t.category, keyCat, keyName)
+                    );
                 },
                 hasSelectedTag(list, category, name, species = '') {
                     return (list || []).some(x => this.tagMatches(x, name, category, species));
