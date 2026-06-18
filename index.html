@@ -127,6 +127,13 @@
         <div class="nav-tabs">
             <button class="tab-btn" :class="{active: currentTab==='main'}" @click="currentTab='main'">❤️ 好胚</button>
             <button class="tab-btn" :class="{active: currentTab==='pu'}" @click="currentTab='pu'">🩵 普普</button>
+            <button
+                class="tab-btn"
+                :class="{active: currentTab === 'special'}"
+                @click="currentTab = 'special'"
+            >
+                ✨ 特殊區 ({{ specialPetCount }})
+            </button>
             <button class="tab-btn" :class="{active: currentTab==='breeding'}" @click="currentTab='breeding'">🥚 繁育中 ({{ breedingQueue.length }})</button>
             <button class="tab-btn" :class="{active: currentTab==='todayBabies'}" @click="currentTab='todayBabies'">🍼 本週新寶寶</button>
             <button class="tab-btn" :class="{active: currentTab==='analysis'}" @click="currentTab='analysis'">📊 遺傳分析</button>
@@ -135,7 +142,14 @@
         </div>
 
         <!-- 寵物列表 -->
-        <div v-if="currentTab === 'main' || currentTab === 'pu'">
+        <!-- 寵物列表 -->
+        <div
+            v-if="
+                currentTab === 'main' ||
+                currentTab === 'pu' ||
+                currentTab === 'special'
+            "
+        >
             <!-- 多重篩選區塊 -->
             <div class="card" style="background: #eef2ff; display: flex; flex-direction: column; gap: 10px;">
                 <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
@@ -202,7 +216,13 @@
                 </select>
                     <select v-model="form.owner"><option value="">持有者</option><option v-for="o in ownerList" :value="o">{{o}}</option></select>
                     <input v-model="form.name" placeholder="名稱">
-                    <select v-model="form.type"><option v-for="t in ['good','normal','bad']" :value="t">{{ t === 'good' ? '❤️ 好胚' : t === 'normal' ? '🩵 普普' : '🖤 爛爛' }}</option></select>
+                    <select
+                        v-model="form.type"
+                        title="好胚／普普／自動爛爛皆由詞條數判定；只有手動爛爛會強制覆蓋"
+                    >
+                        <option value="normal">🤖 自動判定</option>
+                        <option value="bad">🖤 手動標為爛爛</option>
+                    </select>
                     <select v-model="form.gender"><option value="公">♂️ 公</option><option value="母">♀️ 母</option></select>
                     <select v-model="form.source"><option value="wild">野外/其他</option><option value="breed">繁育/子嗣</option></select>
                 </div>
@@ -236,7 +256,18 @@
                     <div v-else class="category-block">
                         <strong>編輯模式</strong>
                         <div style="margin-top:8px;">名稱：<input v-model.trim="pet.name" placeholder="名稱" style="width:100%; margin-top:4px;"></div>
-                        <div style="margin-top:8px;">分類：<select v-model="pet.editType"><option value="good">❤️ 好胚</option><option value="normal">🩵 普普</option><option value="bad">🖤 爛爛</option></select></div>
+                        <div style="margin-top:8px;">
+                            分類方式：
+
+                            <select v-model="pet.editType">
+                                <option value="normal">🤖 自動判定</option>
+                                <option value="bad">🖤 手動標為爛爛</option>
+                            </select>
+
+                            <span class="muted-note" style="margin-left:8px;">
+                                自動模式依 Refresh 門檻重新分類
+                            </span>
+                        </div>
                         <div v-for="(group, cat) in groupedTagsBySpecies(getSpeciesOfPet(pet))" :key="cat" style="margin-top:5px;">
                             <span class="reg-category-title">{{ cat }}</span>
                             <label v-for="tag in group" :key="tag.name" style="margin-right:8px; font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
@@ -482,7 +513,7 @@
 
                             <!-- 新增：分類 -->
                             <td>
-                                <strong>{{ getTypeLabel(baby.type) }}</strong>
+                                <strong>{{ getTypeLabel(getEffectivePetType(baby)) }}</strong>
                             </td>
 
                             <td>{{ baby.owner }}</td>
@@ -784,17 +815,49 @@
         </div>
 
         <!-- 結果登記彈窗：analyze 預設為 true -->
-            <div v-if="showResultModal" class="modal" @click.self="closeResultModal">
-                <div class="card" style="width: 500px; max-height: 85vh; overflow-y: auto;">
-                    <div style="display:flex; justify-content:space-between;"><h3>🎉 登記：{{ resultTarget.sideName }}</h3><button @click="closeResultModal">×</button></div><div class="category-block">
+            <div
+            v-if="showResultModal"
+            class="modal"
+            @click.self="closeResultModal"
+        >
+            <div
+                class="card"
+                style="width:500px; max-height:85vh; overflow-y:auto;"
+            >
+                <div style="display:flex; justify-content:space-between;">
+                    <h3>🎉 登記：{{ resultTarget.sideName }}</h3>
+                    <button @click="closeResultModal">×</button>
+                </div>
+
+                <div class="category-block">
                     <div style="margin-bottom:10px;">
-                        分類：<select v-model="singleChild.type"><option value="good">❤️ 好胚</option><option value="normal">🩵 普普</option><option value="bad">🖤 爛爛</option></select>
+                        分類方式：
+                        <select v-model="singleChild.type">
+                            <option value="normal">🤖 自動判定</option>
+                            <option value="bad">🖤 手動標為爛爛</option>
+                        </select>
+
+                        <span class="muted-note" style="margin-left:8px;">
+                            自動模式會依 Refresh 門檻判定好胚／普普／爛爛
+                        </span>
                     </div>
-                    <div v-if="singleChild.type === 'good' || singleChild.type === 'normal'">
-                        <div style="margin-top:10px;">名稱：<span class="required-star">*</span><br><input v-model="singleChild.name" placeholder="子嗣名稱" @blur="checkAutoName"></div>
-                        <div style="margin-top:10px;">性別：<span class="required-star">*</span><br>
+                    <div v-if="singleChild.type !== 'none'">
+                        <div style="margin-top:10px;">
+                            名稱：
+                            <span v-if="singleChild.type !== 'bad'" class="required-star">*</span>
+                            <span v-else class="muted-note">（選填；空白預設為「未命名」）</span>
+                            <br>
+                            <input v-model="singleChild.name" placeholder="子嗣名稱" @blur="checkAutoName">
+                        </div>
+                        <div style="margin-top:10px;">
+                            性別：
+                            <span v-if="singleChild.type !== 'bad'" class="required-star">*</span>
+                            <span v-else class="muted-note">（選填；空白預設為「公」）</span>
+                            <br>
                             <select v-model="singleChild.gender">
-                                <option value="">請選擇性別</option><option value="公">♂️ 公</option><option value="母">♀️ 母</option>
+                                <option value="">未選擇（預設為公）</option>
+                                <option value="公">♂️ 公</option>
+                                <option value="母">♀️ 母</option>
                             </select>
                         </div>
                     </div>
@@ -1118,7 +1181,7 @@
                 return {
                     // --- 遠端 API ---
                     // Google Apps Script Web App URL（所有讀寫都走此端點）
-                    scriptUrl: 'https://script.google.com/macros/s/AKfycbz7wyTJsSkofHGkmQI3cis6swFUMVUBzBqkwJJ-BcebciYSc0dbPNoqo5Es7w0u8Gx2bQ/exec', 
+                    scriptUrl: 'https://script.google.com/macros/s/AKfycbwUADd7gzOg7X944hRhPnmCnI0smVvdSZ4Wckd6eW0m_J_ygOj8lztdpIeJ5SPw1x-UBw/exec', 
                     // --- 介面狀態 ---
                     currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
                     isLoading: false,   // 非同步期間禁用部分按鈕
@@ -1200,11 +1263,11 @@
                     showResultModal: false,
                     isResultSubmitting: false, // 登記結果按鈕防連點鎖定
                     resultTarget: { item: null, side: '', sideName: '' }, // 目前登記的是繁育配對哪一側
-                    singleChild: { name: '', type: 'good', gender: '', tags: [], useGoldenPill: false }, // 子嗣登記表單
+                    singleChild: { name: '', type: 'normal', gender: '', tags: [], useGoldenPill: false }, // 子嗣登記表單
                     singleChildAnimalForm: '',
                     // --- 手動登記表單 ---
                     formSpecies: '', // 選擇物種後，決定可勾選的詞條分類
-                    form: { owner: '', name: '', type: 'good', gender: '公', selectedTags: [], source: 'wild', analyze: false },
+                    form: { owner: '', name: '', type: 'normal', gender: '公', selectedTags: [], source: 'wild', analyze: false },
 
                     // 經驗統計切換門檻：樣本夠大時改用實際紀錄機率。
                     // 若要提前/延後從 bias 轉到統計，改這個值。
@@ -1286,7 +1349,7 @@
 
                         const typeMatch =
                             this.todayBabyFilterType === 'ALL' ||
-                            String(p.type || p.Type || '').trim() === this.todayBabyFilterType;
+                            this.getEffectivePetType(p) === this.todayBabyFilterType;
 
                         const animalFormMatch =
                             this.todayBabyFilterAnimalForm === 'ALL' ||
@@ -1310,20 +1373,92 @@
                 fubaoAnimalFormOptions() {
                     return this.getAnimalFormOptionsBySpecies('福寶寶');
                 },
+                // Special Zone 目前顯示的寵物數量
+                specialPetCount() {
+                    return (this.pets || [])
+                        .filter(p =>
+                            this.isActiveOfficialPet(p) &&
+                            this.isSpecialPet(p)
+                        )
+                        .length;
+                },
                 // 目前分頁顯示的寵物：先篩選再按胚子分數降序。
                 // 注意：正式列表只顯示 official pet；其他人/external/hidden 永遠不出現在好胚與普普頁。
+                // 好胚、普普與 Special Zone 共用的寵物列表。
+                // Special Zone 只改變顯示位置，不改寫 Pets.Type。
                 sortedPets() {
-                    const tMap = { 'main': 'good', 'pu': 'normal' };
-                    return this.pets.filter(p => {
-                        const tabMatch = p.type === tMap[this.currentTab] && this.isActiveOfficialPet(p);
-                        const ownerMatch = this.filterOwner === 'ALL' || p.owner === this.filterOwner;
-                        const speciesMatch = this.filterSpecies === 'ALL' || this.getSpeciesOfPet(p) === this.filterSpecies;
-                        const animalFormMatch = this.filterAnimalForm === 'ALL' || this.hasPetAnimalForm(p, this.filterAnimalForm);
-                        const rarityMatch = this.filterRarity === 'ALL' || this.getRarityFromTags(p.tags) === this.filterRarity;
-                        const tagMatch = this.matchesPetTagFilter(p, this.selectedFilterTags, this.filterTagMatchMode);
+                    const tMap = {
+                        main: 'good',
+                        pu: 'normal'
+                    };
 
-                        return tabMatch && ownerMatch && speciesMatch && animalFormMatch && rarityMatch && tagMatch;
-                    }).sort((a,b) => this.getEmbryoScore(b) - this.getEmbryoScore(a));
+                    return (this.pets || [])
+                        .filter(p => {
+                            const isActiveOfficial =
+                                this.isActiveOfficialPet(p);
+
+                            const isSpecial =
+                                isActiveOfficial &&
+                                this.isSpecialPet(p);
+
+                            let tabMatch = false;
+
+                            if (this.currentTab === 'special') {
+                                // Special Zone：
+                                // good、normal、bad 都可以顯示
+                                tabMatch = isSpecial;
+                            } else {
+                                // 好胚與普普：
+                                // temporary 寵物暫時移出原本分頁，避免重複顯示
+                                tabMatch =
+                                    isActiveOfficial &&
+                                    !isSpecial &&
+                                    this.getEffectivePetType(p) ===
+                                        tMap[this.currentTab];
+                            }
+
+                            const ownerMatch =
+                                this.filterOwner === 'ALL' ||
+                                p.owner === this.filterOwner;
+
+                            const speciesMatch =
+                                this.filterSpecies === 'ALL' ||
+                                this.getSpeciesOfPet(p) ===
+                                    this.filterSpecies;
+
+                            const animalFormMatch =
+                                this.filterAnimalForm === 'ALL' ||
+                                this.hasPetAnimalForm(
+                                    p,
+                                    this.filterAnimalForm
+                                );
+
+                            const rarityMatch =
+                                this.filterRarity === 'ALL' ||
+                                this.getRarityFromTags(p.tags) ===
+                                    this.filterRarity;
+
+                            const tagMatch =
+                                this.matchesPetTagFilter(
+                                    p,
+                                    this.selectedFilterTags,
+                                    this.filterTagMatchMode
+                                );
+
+                            return (
+                                tabMatch &&
+                                ownerMatch &&
+                                speciesMatch &&
+                                animalFormMatch &&
+                                rarityMatch &&
+                                tagMatch
+                            );
+                        })
+                        .sort(
+                            (a, b) =>
+                                this.getEmbryoScore(b) -
+                                this.getEmbryoScore(a)
+                        );
                 },
                 canUseGoldenPill() {
                     if (!this.resultTarget || !this.resultTarget.item) return false;
@@ -1532,9 +1667,23 @@
                             pityRare: this.getPityCount(owner, 'rare'),
                             pityNormal: this.getPityCount(owner, 'normal'),
                             totalAnalyze: recs.length,
-                            good: pets.filter(p => p.type === 'good' && p.source === 'breed').length,
-                            normal: pets.filter(p => p.type === 'normal' && p.source === 'breed').length,
-                            bad: pets.filter(p => p.type === 'bad' && p.source === 'breed').length
+                            good: pets.filter(
+                                p =>
+                                    this.getEffectivePetType(p) === 'good' &&
+                                    p.source === 'breed'
+                            ).length,
+
+                            normal: pets.filter(
+                                p =>
+                                    this.getEffectivePetType(p) === 'normal' &&
+                                    p.source === 'breed'
+                            ).length,
+
+                            bad: pets.filter(
+                                p =>
+                                    this.getEffectivePetType(p) === 'bad' &&
+                                    p.source === 'breed'
+                            ).length
                         };
                     });
                 }
@@ -1673,7 +1822,15 @@
                 },
                 // 判斷是否可進入繁育流程。三個配對入口與候選池都共用此方法。
                 isBreedablePet(pet) {
-                    return this.isActiveOfficialPet(pet) && (pet.type === 'good' || pet.type === 'normal') && Number(pet.remaining || 0) > 0;
+                    const effectiveType =
+                        this.getEffectivePetType(pet);
+
+                    return this.isActiveOfficialPet(pet) &&
+                        (
+                            effectiveType === 'good' ||
+                            effectiveType === 'normal'
+                        ) &&
+                        Number(pet.remaining || 0) > 0;
                 },
                 resetVisiblePetLimit() {
                     this.visiblePetLimit = 60;
@@ -2153,7 +2310,11 @@
                             id: String(p.id || p.ID || Date.now() + Math.random()),
                             isEditing: false, 
                             tags: this.parseTags(p.tags || p.Tags),
-                            type: String(p.type || p.Type || 'good').trim(),
+                            type: String(
+                                p.type ||
+                                p.Type ||
+                                'normal'
+                            ).trim(),
                             father: String(p.father || p.Father || '').trim(),
                             mother: String(p.mother || p.Mother || '').trim(),
                             species: String(p.species || p.speceis || p.Species || '').trim(),
@@ -2178,7 +2339,13 @@
                             bias: String(t.bias || '').trim(),
                             // Tags 表新增 downgrade 欄位：表示此詞條降級後對應的下一階詞條。
                             // 支援英文 downgrade / Downgrade，也支援中文欄位「降級詞條」。
-                            downgrade: String(t.downgrade ?? t.Downgrade ?? t['降級詞條'] ?? '').trim()
+                            downgrade: String(t.downgrade ?? t.Downgrade ?? t['降級詞條'] ?? '').trim(),
+                            // Tags.SpecialZone：填 temporary 時暫時進入 Special Zone
+                            specialZone: String(
+                                t.SpecialZone ??
+                                t.specialZone ??
+                                ''
+                            ).trim().toLowerCase()
                         }));
 
                         // 👉 3. 這是剛剛新增的全局排序邏輯 (依稀有度排序)
@@ -2992,6 +3159,43 @@
                     }
                     return this.tagMetaByName[keyName] || this.tags.find(t => this.normalizeKey(t.name) === keyName) || null;
                 },
+                // 判斷某個 Tags 詞條是否被標記為 temporary
+                isTemporarySpecialTagMeta(meta) {
+                    if (!meta) return false;
+
+                    const flag = String(
+                        meta.specialZone ??
+                        meta.SpecialZone ??
+                        ''
+                    ).trim().toLowerCase();
+
+                    return flag === 'temporary';
+                },
+
+                // 判斷寵物是否擁有至少一個 temporary 詞條
+                // 不判斷 good / normal / bad，所以 bad 也能進入 Special Zone
+                isSpecialPet(pet) {
+                    if (!pet) return false;
+
+                    const species = this.getSpeciesOfPet(pet);
+
+                    const tagList = Array.isArray(pet.tags)
+                        ? pet.tags
+                        : this.parseTags(
+                            pet.tags ||
+                            pet.Tags ||
+                            ''
+                        );
+
+                    return tagList.some(rawTag => {
+                        const meta = this.findTagMeta(
+                            rawTag,
+                            species
+                        );
+
+                        return this.isTemporarySpecialTagMeta(meta);
+                    });
+                },
                 inferSpeciesFromTags(tags) {
                     const scores = {};
                     (tags || []).forEach(tagName => {
@@ -3112,7 +3316,13 @@
                         return `${cat}（目標: ${selected.map(this.displayTagName).join('、') || '無'} / 聯集: ${owned.map(this.displayTagName).join('、') || '無'}）`;
                     });
 
-                    if (targetPet && (targetPet.type === 'normal' || targetPet.type === 'good') && desiredTags.length) {
+                    if (
+                        targetPet &&
+                        ['normal', 'good'].includes(
+                            this.getEffectivePetType(targetPet)
+                        ) &&
+                        desiredTags.length
+                    ) {
                         if (!categories.length) {
                             return {
                                 passed: false,
@@ -3270,7 +3480,19 @@
                 // 是否達到頂級胚子門檻
                 isBestEmbryo(pet) { return this.getEmbryoScore(pet) > 60; },
                 // 取該持有者 top3 好胚（依分數）
-                getTopEmbryos(owner) { return this.pets.filter(p => p.owner === owner && p.type === 'good').sort((a,b) => this.getEmbryoScore(b) - this.getEmbryoScore(a)).slice(0, 3); },
+                getTopEmbryos(owner) {
+                    return this.pets
+                        .filter(p =>
+                            p.owner === owner &&
+                            this.getEffectivePetType(p) === 'good'
+                        )
+                        .sort(
+                            (a, b) =>
+                                this.getEmbryoScore(b) -
+                                this.getEmbryoScore(a)
+                        )
+                        .slice(0, 3);
+                },
                 getTopTagsWithRank(pet) {
                     const ranked = (pet.tags || [])
                         .map(tag => ({ tag, score: this.getTagValue(tag) }))
@@ -3294,7 +3516,9 @@
 
                 // --- 分析頁輔助 ---
                 isReportTypeMatch(pet) {
-                    return this.reportTypeFilter === 'ALL' || pet.type === this.reportTypeFilter;
+                    return this.reportTypeFilter === 'ALL' ||
+                        this.getEffectivePetType(pet) ===
+                            this.reportTypeFilter;
                 },
                 getOwnerAnalysisPets(owner) {
                     return this.pets.filter(p => p.owner === owner && this.isOfficialPet(p) && p.analyze === true && this.isReportTypeMatch(p));
@@ -3874,6 +4098,213 @@
                 getTypeLabel(type) {
                     return type === 'good' ? '好胚' : type === 'normal' ? '普普' : '爛爛';
                 },
+                // Refresh 工作表控制的好胚門檻。
+                // 找不到、不是正整數時，預設為 4。
+                getGoodEmbryoMinCollectionTags() {
+                    const raw = Number(
+                        (this.refreshMap || {}).goodEmbryoMinCollectionTags
+                    );
+
+                    return Number.isInteger(raw) && raw > 0
+                        ? raw
+                        : 4;
+                },
+                                // Refresh 控制的普普典藏詞條下限，預設 2
+                getNormalEmbryoMinCollectionTags() {
+                    const text = String(
+                        (this.refreshMap || {})
+                            .normalEmbryoMinCollectionTags ?? ''
+                    ).trim();
+
+                    const raw = Number(text);
+
+                    return (
+                        text !== '' &&
+                        Number.isInteger(raw) &&
+                        raw >= 0
+                    )
+                        ? raw
+                        : 2;
+                },
+
+                // Refresh 控制的普普典藏詞條上限，預設 3
+                getNormalEmbryoMaxCollectionTags() {
+                    const min =
+                        this.getNormalEmbryoMinCollectionTags();
+
+                    const text = String(
+                        (this.refreshMap || {})
+                            .normalEmbryoMaxCollectionTags ?? ''
+                    ).trim();
+
+                    const raw = Number(text);
+
+                    return (
+                        text !== '' &&
+                        Number.isInteger(raw) &&
+                        raw >= min
+                    )
+                        ? raw
+                        : Math.max(min, 3);
+                },
+
+                // 判斷單一詞條是否屬於「典藏級詞條」。
+                // color_rank 0 = 典藏珍
+                // color_rank 1 = 典藏
+                // 技能分類一律排除。
+                isCollectionLevelTagMeta(meta) {
+                    if (!meta) return false;
+
+                    if (
+                        this.normalizeCategoryKey(meta.category) === '技能'
+                    ) {
+                        return false;
+                    }
+
+                    if (meta.color_rank === 'NA') return false;
+
+                    const rank = Number(meta.color_rank);
+
+                    return rank === 0 || rank === 1;
+                },
+
+                // 計算非技能的典藏級詞條數量。
+                // 使用 Set，避免同一詞條因資料重複而被算兩次。
+                countCollectionLevelTags(tags, species = '') {
+                    const unique = new Set();
+
+                    (tags || []).forEach(raw => {
+                        const meta = this.findTagMeta(raw, species);
+
+                        if (!this.isCollectionLevelTagMeta(meta)) {
+                            return;
+                        }
+
+                        unique.add(
+                            this.makeStoredTag(
+                                meta.category,
+                                meta.name,
+                                meta.species
+                            )
+                        );
+                    });
+
+                    return unique.size;
+                },
+
+                // 自動好胚判斷：
+                // 1. 種類是典藏或典藏珍，直接好胚。
+                // 2. 其餘寵物的非技能典藏級詞條數達門檻，歸好胚。
+                shouldAutoClassifyAsGood(tags, species = '') {
+                    const rarity = this.getRarityFromTags(tags || []);
+
+                    if (
+                        rarity === '典藏' ||
+                        rarity === '典藏珍'
+                    ) {
+                        return true;
+                    }
+
+                    return (
+                        this.countCollectionLevelTags(
+                            tags || [],
+                            species
+                        ) >= this.getGoodEmbryoMinCollectionTags()
+                    );
+                },
+
+               // 嚴格自動分類：好胚資格完全由目前詞條與稀有度決定。
+                // 舊資料即使 Pets.Type 原本是 good，只要現在不符合規則，就會自動回到普普。
+                // 分類優先順序：external > bad > 自動好胚 > normal。
+                // 只要 Pets.Type 是 bad，即使是典藏、典藏珍或達到典藏詞條門檻，
+                // 都維持 bad，不會顯示在好胚區。
+                // 分類優先順序：external > 手動 bad > 典藏／典藏珍種類 > 詞條數自動分類。
+// Type=bad 代表人工強制爛爛；Type=normal 代表使用自動判定。
+// 因此 Refresh 門檻調整後，所有非手動 bad 的既有資料都會重新歸類。
+                getEffectivePetType(pet) {
+                    if (!pet) return 'bad';
+
+                    const baseType = String(
+                        pet.type ||
+                        pet.Type ||
+                        'normal'
+                    ).trim();
+
+                    if (baseType === 'external') {
+                        return 'external';
+                    }
+
+                    // 人工選擇爛爛，優先於所有自動規則
+                    if (baseType === 'bad') {
+                        return 'bad';
+                    }
+
+                    const tagList = Array.isArray(pet.tags)
+                        ? pet.tags
+                        : this.parseTags(
+                            pet.tags ||
+                            pet.Tags ||
+                            ''
+                        );
+
+                    const species =
+                        this.normalizeKey(
+                            pet.species ||
+                            pet.Species ||
+                            ''
+                        ) ||
+                        this.inferSpeciesFromTags(tagList);
+
+                    if (baseType === 'bad') {
+                        return 'bad';
+                    }
+                    const storedRarity = String(
+                        pet.rarity ||
+                        pet.Rarity ||
+                        ''
+                    ).trim();
+
+                    const calculatedRarity =
+                        this.getRarityFromTags(tagList);
+
+                    const isCollectionSpecies =
+                        storedRarity === '典藏' ||
+                        storedRarity === '典藏珍' ||
+                        calculatedRarity === '典藏' ||
+                        calculatedRarity === '典藏珍';
+
+                    if (isCollectionSpecies) {
+                        return 'good';
+                    }
+                    const count =
+                        this.countCollectionLevelTags(
+                            tagList,
+                            species
+                        );
+
+                    const goodMin =
+                        this.getGoodEmbryoMinCollectionTags();
+
+                    const normalMin =
+                        this.getNormalEmbryoMinCollectionTags();
+
+                    const normalMax =
+                        this.getNormalEmbryoMaxCollectionTags();
+
+                    // 好胚優先，避免區間重疊時分類不一致
+                    if (count >= goodMin) {
+                        return 'good';
+                    }
+
+                    if (
+                        count >= normalMin &&
+                        count <= normalMax
+                    ) {
+                        return 'normal';
+                    }
+
+                    return 'bad';
+                },
                 getRarityFromTags(tags) {
                     const tag = this.tags.find(x => x.category === '種類' && (tags || []).some(raw => this.tagMatches(raw, x.name, '種類', x.species)));
                     if (!tag) return '普通';
@@ -3996,7 +4427,7 @@
                     await this.sendBatch({ upsertPets: [newPet] }, '新增寵物存檔中'); // 🔴 只傳送新增的這隻寵物給後端
                     this.form.name = '';
                     this.form.selectedTags = [];
-                    this.form.type = 'good';
+                    this.form.type = 'normal';
                     this.formAnimalForm = '';
                 },
 
@@ -4011,26 +4442,46 @@
 
                     const { item: oldItem, side } = this.resultTarget;
                     try {
-                        // 1. 表單基本驗證。bad 也需要標籤；none 才代表完全不新增子嗣。
-                        if (this.singleChild.type !== 'bad' && this.singleChild.type !== 'none') {
-                            if (!this.singleChild.name || !this.singleChild.gender) return alert("名稱與性別必填！");
-                        }
                         if (this.singleChild.type !== 'none') {
-                            if (!this.singleChild.tags.some(tagName => {
-                                const meta = this.findTagMeta(tagName, this.resultSpecies);
-                                return meta && meta.category === '種類';
-                            })) return alert("種類類別必填！");
+
+                            // 自動判定仍要求名稱與性別；
+                            // 手動爛爛允許留白，送出時套用預設值。
+                            if (this.singleChild.type !== 'bad') {
+                                if (
+                                    !String(this.singleChild.name || '').trim() ||
+                                    !this.singleChild.gender
+                                ) {
+                                    return alert("名稱與性別必填！");
+                                }
+                            }
 
                             if (this.resultSpecies === '福寶寶') {
-                                if (!this.singleChildAnimalForm) return alert("請選擇福寶寶型態：兔 / 虎。");
-                                if (!this.hasSelectedAnimalFormType(this.singleChild.tags, this.resultSpecies, this.singleChildAnimalForm)) {
+                                if (!this.singleChildAnimalForm) {
+                                    return alert("請選擇福寶寶型態：兔 / 虎。");
+                                }
+
+                                if (
+                                    !this.hasSelectedAnimalFormType(
+                                        this.singleChild.tags,
+                                        this.resultSpecies,
+                                        this.singleChildAnimalForm
+                                    )
+                                ) {
                                     return alert("請勾選對應型態的種類詞條。");
                                 }
                             }
 
-                            const catCount = Object.keys(this.groupedTagsBySpecies(this.resultSpecies)).length;
-                            if (this.singleChild.tags.length < catCount) return alert("標籤分類必選！");
+                            const catCount =
+                                Object.keys(
+                                    this.groupedTagsBySpecies(this.resultSpecies)
+                                ).length;
+
+                            if (this.singleChild.tags.length < catCount) {
+                                return alert("標籤分類必選！");
+                            }
                         }
+
+    // 2. 寫入前只拉最新 Breeding 狀態
 
                         // 2. 寫入前只拉最新 Breeding 狀態，不重抓 Pets / Tags / Records。
                         // 這保留雙方同時操作的安全檢查，也避免原本完整 fetchData 造成「反覆載入」體感。
@@ -4061,7 +4512,21 @@
                             fTags = this.sortTagsArray(this.singleChild.tags.filter(t => !String(this.displayTagName(t)).startsWith('無')), this.resultSpecies);
                             derivedRarity = this.getRarityFromTags(fTags);
                             
-                            const resolvedChildName = this.getAutoIndexedName(p.owner, this.singleChild.name || "未命名", fTags, this.singleChild.gender);
+                            // 手動爛爛若名稱或性別留白，套用固定預設值。
+                            const resolvedGender =
+                                this.singleChild.gender || '公';
+
+                            const resolvedBaseName =
+                                String(this.singleChild.name || '').trim() ||
+                                '未命名';
+
+                            const resolvedChildName =
+                                this.getAutoIndexedName(
+                                    p.owner,
+                                    resolvedBaseName,
+                                    fTags,
+                                    resolvedGender
+                                );
                             const fatherId = String(p.gender === '公' ? p.id : other.id);
                             const motherId = String(p.gender === '母' ? p.id : other.id);
 
@@ -4070,7 +4535,7 @@
                             const newChild = {
                                 id: Date.now().toString(), owner: p.owner, name: resolvedChildName,
                                 rarity: derivedRarity, tags: fTags, species: this.resultSpecies,
-                                remaining: this.getInitialRemainingByRarity(derivedRarity), gender: this.singleChild.gender || '公',
+                                remaining: this.getInitialRemainingByRarity(derivedRarity), gender: resolvedGender,
                                 status: 'active', type: this.singleChild.type, analyze: true, source: 'breed',
                                 father: fatherId, mother: motherId,
 
@@ -4261,7 +4726,7 @@
                 openSingleResultModal(item, side) {
                     const p = this.getPet(item[side]);
                     this.resultTarget = { item, side, sideName: p.name };
-                    this.singleChild = { name: '', type: 'good', gender: '', tags: [], useGoldenPill: false };
+                    this.singleChild = { name: '', type: 'normal', gender: '', tags: [], useGoldenPill: false };
                     this.singleChildAnimalForm = '';
                     this.isResultSubmitting = false;
                     this.showResultModal = true;
@@ -4522,7 +4987,10 @@
                 },
                 startEdit(pet) {
                     if (!pet.isEditing) {
-                        pet.editType = pet.type; 
+                        pet.editType =
+                            String(pet.type || '').trim() === 'bad'
+                                ? 'bad'
+                                : 'normal';
                         // 👉 新增這行：把原本的詞條複製一份到暫存區
                         pet.editTags = [...(pet.tags || [])]; 
                     }
