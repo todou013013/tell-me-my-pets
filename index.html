@@ -1821,16 +1821,28 @@
                     return this.isOfficialPet(pet) && pet.status === 'active';
                 },
                 // 判斷是否可進入繁育流程。三個配對入口與候選池都共用此方法。
+                // 判斷是否可進入繁育流程。
+                // 好胚、普普，以及目前位於 Special Zone 的寵物皆可繁育。
+                // 非 Special Zone 的 bad 寵物仍不可繁育。
                 isBreedablePet(pet) {
+                    if (!pet) return false;
+
                     const effectiveType =
                         this.getEffectivePetType(pet);
 
-                    return this.isActiveOfficialPet(pet) &&
-                        (
-                            effectiveType === 'good' ||
-                            effectiveType === 'normal'
-                        ) &&
-                        Number(pet.remaining || 0) > 0;
+                    const isSpecial =
+                        this.isSpecialPet(pet);
+
+                    const allowedType =
+                        effectiveType === 'good' ||
+                        effectiveType === 'normal' ||
+                        isSpecial;
+
+                    return (
+                        this.isActiveOfficialPet(pet) &&
+                        allowedType &&
+                        Number(pet.remaining || 0) > 0
+                    );
                 },
                 resetVisiblePetLimit() {
                     this.visiblePetLimit = 60;
