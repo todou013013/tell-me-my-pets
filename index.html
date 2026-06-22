@@ -229,7 +229,7 @@
                 <div v-if="formSpecies" v-for="(group, cat) in groupedTagsForAnimalForm(formSpecies, formAnimalForm)" :key="cat" class="category-block">
                     <span class="reg-category-title">{{ cat }}</span>
                     <label v-for="tag in group" :key="tag.name" style="margin-right:15px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
-                        <input type="checkbox" :checked="hasSelectedTag(form.selectedTags, cat, tag.name, formSpecies)" @change="toggleFormTag(cat, tag.name)">
+                        <input type="checkbox":checked="hasSelectedTag(form.selectedTags, cat, tag.name, formSpecies)"@change="toggleFormTag(cat, tag.name, $event.target.checked)">
                         <span class="tag-pill" :style="{...getTagStyle(tag.name, tag), fontSize:'10px', padding:'4px 8px'}">{{ displayTagOptionName(tag) }}</span>
                     </label>
                 </div>
@@ -863,7 +863,10 @@
                     </div>
 
                     <div style="margin-top:15px;">
-                    <strong>標籤設定 <span class="required-star">(每類必選)</span></strong>
+                    <strong>
+                        標籤設定
+                        <span class="muted-note">（可不選；只勾選實際出現的詞條）</span>
+                    </strong>
 
                     <div v-if="resultSpecies === '福寶寶'" style="margin-top:10px;">
                         福寶寶型態：<span class="required-star">*</span><br>
@@ -873,21 +876,186 @@
                         </select>
                     </div>
 
-                    <div v-for="(group, cat) in groupedTagsWithNoneByAnimalForm(resultSpecies, singleChildAnimalForm)" :key="cat" style="margin-top:8px; border-bottom:1px solid #eee; padding-bottom:5px;">
+                    <div v-for="(group, cat) in groupedTagsForAnimalForm(resultSpecies, singleChildAnimalForm)" :key="cat" style="margin-top:8px; border-bottom:1px solid #eee; padding-bottom:5px;">
                             <span class="reg-category-title">{{ cat }}</span>
                             <label v-for="tag in group" :key="tag.name" style="margin-right:8px; font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
-                                <input type="checkbox" :checked="hasSelectedTag(singleChild.tags, cat, tag.name, resultSpecies)" @change="toggleSingleChildTag(cat, tag.name)">
+                                <input type="checkbox" :checked="hasSelectedTag(singleChild.tags, cat, tag.name, resultSpecies)" @change="toggleSingleChildTag(cat, tag.name, $event.target.checked)">
                                 <span class="tag-pill" :style="{...getTagStyle(tag.name, tag), fontSize:'10px', padding:'4px 8px'}">{{ displayTagOptionName(tag) }}</span>
                             </label>
                         </div>
                     </div>
                 </div>
-                <button @click="submitSingleResult" :disabled="isResultSubmitting || isLoading" :style="{width:'100%', marginTop:'20px', background:(isResultSubmitting || isLoading) ? '#aaa' : 'var(--primary)', color:'white', cursor:(isResultSubmitting || isLoading) ? 'not-allowed' : 'pointer'}">
-                    {{ (isResultSubmitting || isLoading) ? '⏳ 處理中，請稍候...' : '✅ 確認歸位並納入分析' }}
+                <button
+                    @click="openResultConfirm"
+                    :disabled="isResultSubmitting || isLoading"
+                    :style="{
+                        width:'100%',
+                        marginTop:'20px',
+                        background:(isResultSubmitting || isLoading)
+                            ? '#aaa'
+                            : 'var(--primary)',
+                        color:'white',
+                        cursor:(isResultSubmitting || isLoading)
+                            ? 'not-allowed'
+                            : 'pointer'
+                    }"
+                >
+                    {{
+                        (isResultSubmitting || isLoading)
+                            ? '⏳ 處理中，請稍候...'
+                            : '下一步：確認登記內容'
+                    }}
                 </button>
             </div>
         </div>
+        <!-- 子嗣登記最終確認視窗 -->
+        <div
+            v-if="showResultConfirmModal"
+            class="modal"
+            style="z-index:10001;"
+            @click.self="showResultConfirmModal = false"
+        >
+            <div
+                class="card"
+                style="
+                    width:500px;
+                    max-width:90%;
+                    max-height:85vh;
+                    overflow-y:auto;
+                "
+            >
+                <div
+                    style="
+                        display:flex;
+                        justify-content:space-between;
+                        align-items:center;
+                    "
+                >
+                    <h3 style="margin:0;">
+                        🔎 請確認子嗣登記內容
+                    </h3>
 
+                    <button
+                        @click="showResultConfirmModal = false"
+                    >
+                        ×
+                    </button>
+                </div>
+
+                <div class="category-block">
+                    <div>
+                        <strong>名稱：</strong>
+                        {{
+                            String(singleChild.name || '').trim()
+                            || '未命名'
+                        }}
+                    </div>
+
+                    <div style="margin-top:6px;">
+                        <strong>性別：</strong>
+                        {{ singleChild.gender || '公' }}
+                    </div>
+
+                    <div style="margin-top:6px;">
+                        <strong>分類：</strong>
+                        {{
+                            singleChild.type === 'bad'
+                                ? '🖤 手動標為爛爛'
+                                : '🤖 自動判定'
+                        }}
+                    </div>
+
+                    <div
+                        v-if="resultSpecies === '福寶寶'"
+                        style="margin-top:6px;"
+                    >
+                        <strong>福寶寶型態：</strong>
+                        {{ singleChildAnimalForm }}
+                    </div>
+                </div>
+
+                <div
+                    class="category-block"
+                    style="background:#f8f9ff;"
+                >
+                    <strong>實際登記詞條：</strong>
+
+                    <div
+                        v-if="singleChild.tags.length"
+                        style="
+                            margin-top:8px;
+                            display:flex;
+                            flex-wrap:wrap;
+                            gap:4px;
+                        "
+                    >
+                        <span
+                            v-for="t in singleChild.tags"
+                            :key="'result_confirm_' + t"
+                            class="tag-pill"
+                            :style="{
+                                ...getTagStyle(t),
+                                fontSize:'10px'
+                            }"
+                        >
+                            {{ displayTagName(t) }}
+                        </span>
+                    </div>
+
+                    <div
+                        v-else
+                        class="muted-note"
+                        style="
+                            margin-top:8px;
+                            padding:10px;
+                            background:#fff7ef;
+                            border-radius:8px;
+                            color:#d35400;
+                        "
+                    >
+                        ⚠️ 目前沒有勾選任何詞條。
+                        確認後會以無詞條子嗣登記。
+                    </div>
+                </div>
+
+                <div
+                    style="
+                        display:flex;
+                        gap:10px;
+                        margin-top:18px;
+                    "
+                >
+                    <button
+                        @click="showResultConfirmModal = false"
+                        style="flex:1;"
+                    >
+                        返回修改
+                    </button>
+
+                    <button
+                        @click="submitSingleResult"
+                        :disabled="
+                            isResultSubmitting || isLoading
+                        "
+                        :style="{
+                            flex:1,
+                            background:
+                                (isResultSubmitting || isLoading)
+                                    ? '#aaa'
+                                    : 'var(--success)',
+                            color:'white',
+                            fontWeight:'bold'
+                        }"
+                    >
+                        {{
+                            (isResultSubmitting || isLoading)
+                                ? '⏳ 寫入中...'
+                                : '✅ 確認歸位並納入分析'
+                        }}
+                    </button>
+                </div>
+            </div>
+        </div>
         <!-- 配對彈窗：三種模式共用同一套彈窗骨架，避免重複邏輯互相打架。 -->
         <div v-if="showMatchPicker" class="modal" @click.self="closeMatchPicker">
             <div class="card" style="width: 85%; max-width: 900px; max-height: 90vh; overflow-y: auto;">
@@ -1261,6 +1429,7 @@
                     expandedMatchAnalysis: {}, // { petId: true }：候選卡遺傳分析展開狀態
                     // --- 子嗣結果彈窗狀態 ---
                     showResultModal: false,
+                    showResultConfirmModal: false,
                     isResultSubmitting: false, // 登記結果按鈕防連點鎖定
                     resultTarget: { item: null, side: '', sideName: '' }, // 目前登記的是繁育配對哪一側
                     singleChild: { name: '', type: 'normal', gender: '', tags: [], useGoldenPill: false }, // 子嗣登記表單
@@ -1454,11 +1623,30 @@
                                 tagMatch
                             );
                         })
-                        .sort(
-                            (a, b) =>
+                        .sort((a, b) => {
+                            // remaining 為 0 或負數的寵物固定排到最後
+                            const aIsZero =
+                                Number(a.remaining || 0) <= 0
+                                    ? 1
+                                    : 0;
+
+                            const bIsZero =
+                                Number(b.remaining || 0) <= 0
+                                    ? 1
+                                    : 0;
+
+                            // 一隻為 0、一隻非 0 時，非 0 排前面
+                            if (aIsZero !== bIsZero) {
+                                return aIsZero - bIsZero;
+                            }
+
+                            // 同樣都是非 0，或同樣都是 0，
+                            // 繼續維持原本的胚子分數排序
+                            return (
                                 this.getEmbryoScore(b) -
                                 this.getEmbryoScore(a)
-                        );
+                            );
+                        });
                 },
                 canUseGoldenPill() {
                     if (!this.resultTarget || !this.resultTarget.item) return false;
@@ -4355,18 +4543,51 @@
                 },// 判斷哪些分類允許多選（目前只有「技能」）
                 isMultiTagCategory(c) { return c === '技能'; },
                 // 表單：只有「技能」可以多選，其餘分類單選
-                toggleFormTag(c, t) {
-                    const stored = this.makeStoredTag(c, t, this.formSpecies);
+                toggleFormTag(c, t, checked) {
+                    const stored = this.makeStoredTag(
+                        c,
+                        t,
+                        this.formSpecies
+                    );
+
+                    // 取消勾選：直接從 selectedTags 移除
+                    if (!checked) {
+                        this.form.selectedTags =
+                            this.form.selectedTags.filter(
+                                x => !this.tagMatches(
+                                    x,
+                                    t,
+                                    c,
+                                    this.formSpecies
+                                )
+                            );
+                        return;
+                    }
+
+                    // 技能可以多選
                     if (this.isMultiTagCategory(c)) {
-                        if (this.hasSelectedTag(this.form.selectedTags, c, t, this.formSpecies)) {
-                            this.form.selectedTags = this.form.selectedTags.filter(x => !this.tagMatches(x, t, c, this.formSpecies));
-                        } else {
+                        if (
+                            !this.hasSelectedTag(
+                                this.form.selectedTags,
+                                c,
+                                t,
+                                this.formSpecies
+                            )
+                        ) {
                             this.form.selectedTags.push(stored);
                         }
-                    } else {
-                        this.form.selectedTags = this.removeTagsInCategory(this.form.selectedTags, c, this.formSpecies);
-                        this.form.selectedTags.push(stored);
+                        return;
                     }
+
+                    // 其他分類維持單選
+                    this.form.selectedTags =
+                        this.removeTagsInCategory(
+                            this.form.selectedTags,
+                            c,
+                            this.formSpecies
+                        );
+
+                    this.form.selectedTags.push(stored);
                 },
                 // 編輯寵物：只有「技能」可以多選，其餘分類單選
                 // 👉 編輯寵物：所有的增刪都只對 editTags 暫存區動手
@@ -4389,18 +4610,51 @@
                     }
                 },
                 // 子嗣登記：只有「技能」可以多選，其餘分類單選
-                toggleSingleChildTag(c, t) {
-                    const stored = this.makeStoredTag(c, t, this.resultSpecies);
+                toggleSingleChildTag(c, t, checked) {
+                    const stored = this.makeStoredTag(
+                        c,
+                        t,
+                        this.resultSpecies
+                    );
+
+                    // 取消勾選：確實從子嗣暫存詞條中移除
+                    if (!checked) {
+                        this.singleChild.tags =
+                            this.singleChild.tags.filter(
+                                x => !this.tagMatches(
+                                    x,
+                                    t,
+                                    c,
+                                    this.resultSpecies
+                                )
+                            );
+                        return;
+                    }
+
+                    // 技能可以多選
                     if (this.isMultiTagCategory(c)) {
-                        if (this.hasSelectedTag(this.singleChild.tags, c, t, this.resultSpecies)) {
-                            this.singleChild.tags = this.singleChild.tags.filter(x => !this.tagMatches(x, t, c, this.resultSpecies));
-                        } else {
+                        if (
+                            !this.hasSelectedTag(
+                                this.singleChild.tags,
+                                c,
+                                t,
+                                this.resultSpecies
+                            )
+                        ) {
                             this.singleChild.tags.push(stored);
                         }
-                    } else {
-                        this.singleChild.tags = this.removeTagsInCategory(this.singleChild.tags, c, this.resultSpecies);
-                        this.singleChild.tags.push(stored);
+                        return;
                     }
+
+                    // 其他分類維持單選
+                    this.singleChild.tags =
+                        this.removeTagsInCategory(
+                            this.singleChild.tags,
+                            c,
+                            this.resultSpecies
+                        );
+
+                    this.singleChild.tags.push(stored);
                 },
                 
                 // --- 寵物 CRUD ---
@@ -4442,7 +4696,41 @@
                     this.form.type = 'normal';
                     this.formAnimalForm = '';
                 },
+                openResultConfirm() {
+                    // 自動判定：名稱與性別必填
+                    if (this.singleChild.type !== 'bad') {
+                        if (
+                            !String(this.singleChild.name || '').trim() ||
+                            !this.singleChild.gender
+                        ) {
+                            return alert('名稱與性別必填！');
+                        }
+                    }
 
+                    // 福寶寶仍然需要選型態和相對應種類
+                    if (this.resultSpecies === '福寶寶') {
+                        if (!this.singleChildAnimalForm) {
+                            return alert(
+                                '請選擇福寶寶型態：兔 / 虎。'
+                            );
+                        }
+
+                        if (
+                            !this.hasSelectedAnimalFormType(
+                                this.singleChild.tags,
+                                this.resultSpecies,
+                                this.singleChildAnimalForm
+                            )
+                        ) {
+                            return alert(
+                                '請勾選對應型態的種類詞條。'
+                            );
+                        }
+                    }
+
+                    // 不檢查詞條分類數量
+                    this.showResultConfirmModal = true;
+                },
                 // --- 子嗣結果登記 ---
                 // 完成子嗣寫入、歷史紀錄寫入、父母剩餘次數遞減與佇列清除
                 // --- 子嗣結果登記 ---
@@ -4451,7 +4739,7 @@
                     // 防連點：登記子嗣會同時寫入 Pets / Records / Breeding，必須鎖住直到流程完成。
                     if (this.isResultSubmitting || this.isLoading) return;
                     this.isResultSubmitting = true;
-
+                    this.showResultConfirmModal = false;
                     const { item: oldItem, side } = this.resultTarget;
                     try {
                         if (this.singleChild.type !== 'none') {
@@ -4483,14 +4771,7 @@
                                 }
                             }
 
-                            const catCount =
-                                Object.keys(
-                                    this.groupedTagsBySpecies(this.resultSpecies)
-                                ).length;
-
-                            if (this.singleChild.tags.length < catCount) {
-                                return alert("標籤分類必選！");
-                            }
+                            
                         }
 
     // 2. 寫入前只拉最新 Breeding 狀態
@@ -4740,12 +5021,14 @@
                     this.resultTarget = { item, side, sideName: p.name };
                     this.singleChild = { name: '', type: 'normal', gender: '', tags: [], useGoldenPill: false };
                     this.singleChildAnimalForm = '';
+                    this.showResultConfirmModal = false;
                     this.isResultSubmitting = false;
                     this.showResultModal = true;
                 },
 
                 closeResultModal() {
                     this.showResultModal = false;
+                    this.showResultConfirmModal = false;
                     this.singleChildAnimalForm = '';
                 },
                 // 避免重名：自動補二、三、四…尾碼
