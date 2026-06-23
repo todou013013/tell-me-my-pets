@@ -358,6 +358,51 @@
                             style="position:absolute; top:6px; right:6px; font-size:10px; padding:3px 7px; background:#fff0f0; color:var(--danger); border:1px solid var(--danger); border-radius:8px; cursor:pointer;">
                         我填錯了
                     </button>
+                    <!-- 是否已經實際在遊戲內進行繁育 -->
+                    <label
+                        :style="{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '5px',
+                            margin: '34px 4px 10px 4px',
+                            padding: '8px',
+                            borderRadius: '10px',
+                            cursor: (isSaving || isLoading) ? 'not-allowed' : 'pointer',
+                            background: item.gameStarted ? '#eafaf1' : '#fff7e6',
+                            border: item.gameStarted
+                                ? '1px solid #2ecc71'
+                                : '1px solid #f39c12',
+                            color: item.gameStarted ? '#1e8449' : '#b9770e',
+                            fontSize: '11px',
+                            fontWeight: 'bold',
+                            textAlign: 'center'
+                        }"
+                    >
+                        <input
+                            type="checkbox"
+                            :checked="item.gameStarted"
+                            :disabled="isSaving || isLoading"
+                            @change="toggleGameStarted(
+                                item,
+                                $event.target.checked
+                            )"
+                            style="
+                                width:auto;
+                                margin:0;
+                                padding:0;
+                                cursor:pointer;
+                            "
+                        >
+
+                        <span>
+                            {{
+                                item.gameStarted
+                                    ? '✅ 已在遊戲中繁育'
+                                    : '⬜ 尚未在遊戲中繁育'
+                            }}
+                        </span>
+                    </label>
                     <div v-if="item.remainingTime > 0" class="timer-display">{{ formatTime(item.remainingTime) }}</div>
                     <div v-else style="font-size:32px;">💖</div>
                     <button v-if="item.remainingTime > 0" @click="forceEnd(item)" style="font-size:10px; color:#999; border:none; background:none; cursor:pointer; margin-top:10px;">🛑 強制結束</button>
@@ -1349,7 +1394,7 @@
                 return {
                     // --- 遠端 API ---
                     // Google Apps Script Web App URL（所有讀寫都走此端點）
-                    scriptUrl: 'https://script.google.com/macros/s/AKfycbwUADd7gzOg7X944hRhPnmCnI0smVvdSZ4Wckd6eW0m_J_ygOj8lztdpIeJ5SPw1x-UBw/exec', 
+                    scriptUrl: 'https://script.google.com/macros/s/AKfycby6yjFjI8t7tbQ8HYyiis2Z3si3YsVUQvoboJ45KYuHGDCi_-tV3_xiusYKMlLn4JRSfw/exec', 
                     // --- 介面狀態 ---
                     currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
                     isLoading: false,   // 非同步期間禁用部分按鈕
@@ -2573,8 +2618,8 @@
                         // 舊版 Refresh weeklyUsed::owner 仍保留 fallback，避免舊資料在未遷移前看不到。
                         this.weeklyUsageMap = { ...(data.ownerWeeklyCountMap || {}) };
                         this.records = (data.records || []).map(r => ({ ...r, tags: this.parseTags(r.tags) }));
-                        this.breedingQueue = (data.breeding || []).map(b => ({ ...b, remainingTime: Math.max(0, Number(b.end) - Date.now()), pADone: b.pADone === true || b.pADone === "TRUE", pBDone: b.pBDone === true || b.pBDone === "TRUE", pABag: b.pABag || '', pBBag: b.pBBag || '', pAGoldenPill: b.pAGoldenPill === true || String(b.pAGoldenPill).toUpperCase() === 'TRUE',pBGoldenPill: b.pBGoldenPill === true || String(b.pBGoldenPill).toUpperCase() === 'TRUE' }));
-
+                        this.breedingQueue = (data.breeding || []).map(b => ({ ...b, remainingTime: Math.max(0, Number(b.end) - Date.now()), pADone: b.pADone === true || b.pADone === "TRUE", pBDone: b.pBDone === true || b.pBDone === "TRUE", pABag: b.pABag || '', pBBag: b.pBBag || '', pAGoldenPill: b.pAGoldenPill === true || String(b.pAGoldenPill).toUpperCase() === 'TRUE',pBGoldenPill: b.pBGoldenPill === true || String(b.pBGoldenPill).toUpperCase() === 'TRUE',gameStarted: b.gameStarted === true || String(b.gameStarted).toUpperCase() === 'TRUE' }));
+                        
                         // 讀取 Refresh tab。GAS 可回傳物件或 key/value 陣列，前端會統一轉成 refreshMap。
                         this.upsertRefreshLocal(this.normalizeRefreshMap(data.refresh));
 
@@ -2675,7 +2720,8 @@
                             pABag: b.pABag || '',
                             pBBag: b.pBBag || '',
                             pAGoldenPill: b.pAGoldenPill === true || String(b.pAGoldenPill).toUpperCase() === 'TRUE',
-                            pBGoldenPill: b.pBGoldenPill === true || String(b.pBGoldenPill).toUpperCase() === 'TRUE' 
+                            pBGoldenPill: b.pBGoldenPill === true || String(b.pBGoldenPill).toUpperCase() === 'TRUE',
+                            gameStarted: b.gameStarted === true || String(b.gameStarted).toUpperCase() === 'TRUE' 
                         }));
                         return true;
                     } catch (e) {
@@ -4986,7 +5032,8 @@
                         pABag: (targetUseBag && bagType !== 'none') ? bagType : '',
                         pBBag: (partnerUseBag && bagType !== 'none' && !this.isExternalPet(partnerPet)) ? bagType : '',
                         pAGoldenPill: (targetUseBag && targetUseGoldenPill) ? true : false,
-                        pBGoldenPill: (partnerUseBag && partnerUseGoldenPill) ? true : false
+                        pBGoldenPill: (partnerUseBag && partnerUseGoldenPill) ? true : false,
+                        gameStarted: false
                     };
 
                     this.markPetBreeding(targetPet);
@@ -5081,6 +5128,21 @@
                 },
 
                 // 強制結束倒數（測試/校正用）
+                // 標記這筆配對是否已經實際在遊戲內進行繁育
+                toggleGameStarted(item, checked) {
+                    if (!item) return;
+
+                    item.gameStarted = checked === true;
+
+                    this.sendBatch(
+                        {
+                            upsertBreeding: [item]
+                        },
+                        item.gameStarted
+                            ? '標記為已在遊戲中繁育'
+                            : '取消遊戲繁育標記'
+                    );
+                },
                 forceEnd(item) {
                     if (!item) return;
                     const petA = this.getPet(item.pA);
