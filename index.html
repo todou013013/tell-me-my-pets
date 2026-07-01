@@ -4,18 +4,92 @@
     <meta charset="UTF-8">
     <title>育寵配配配</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    
     <style>
-        :root { --bg: #f4f7f6; --primary: #5d5fef; --success: #2ecc71; --danger: #e74c3c; --card: #ffffff; --male: #3498db; --female: #e91e63; --tag-dark: #3c3c3c; --breeding: #f1c40f; --match-btn: #8FFFFD; --premium: #ffd700; }
-        body { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; background: var(--bg); padding: 20px; color: #333; line-height: 1.6; }
+        :root {
+            /* 日間模式 */
+            --bg: #f4f7f6;
+            --card: #ffffff;
+            --surface: #f8f9fa;
+            --surface-2: #eeeeee;
+
+            --text: #333333;
+            --muted: #666666;
+            --border: #e1e4e8;
+
+            --input-bg: #ffffff;
+            --button-bg: #dddddd;
+            --table-head: #f8f9fa;
+            --toast-bg: rgba(255, 255, 255, 0.96);
+
+            --primary: #5d5fef;
+            --success: #2ecc71;
+            --danger: #e74c3c;
+            --male: #3498db;
+            --female: #e91e63;
+            --tag-dark: #3c3c3c;
+            --breeding: #f1c40f;
+            --match-btn: #8ffffd;
+            --premium: #ffd700;
+        }
+
+        /* 夜間模式的顏色 */
+        html.dark-mode {
+            --bg: #101319;
+            --card: #1b2029;
+            --surface: #232a35;
+            --surface-2: #303846;
+
+            --text: #edf1f7;
+            --muted: #aab4c2;
+            --border: #3a4554;
+
+            --input-bg: #252c37;
+            --button-bg: #303846;
+            --table-head: #252c37;
+            --toast-bg: rgba(27, 32, 41, 0.97);
+
+            --tag-dark: #4a5361;
+        }
+        body { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; background: var(--bg); padding: 20px; color: var(--text); line-height: 1.6; }
         .container { max-width: 1200px; margin: 0 auto; }
         .nav-tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
         .tab-btn { padding: 10px 15px; border-radius: 10px; border: none; cursor: pointer; background: #ddd; font-weight: bold; transition: 0.3s; }
         .tab-btn.active { background: var(--primary) !important; color: white !important; }
         .card { background: var(--card); padding: 20px; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; position: relative; }
         .input-group { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; align-items: center; }
-        input, select, button { padding: 10px 15px; border: 1.5px solid #e1e4e8; border-radius: 10px; font-size: 14px; }
+        input,
+        select,
+        button {
+            padding: 10px 15px;
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
+            font-size: 14px;
+
+            background: var(--input-bg);
+            color: var(--text);
+
+            transition:
+                background-color 0.25s ease,
+                color 0.25s ease,
+                border-color 0.25s ease;
+        }
         .pet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
-        .tag-pill { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; margin: 0 4px 4px 0; color: inherit !important; font-size: 10px; background-color: var(--tag-dark); text-shadow: 1px 1px 2px rgba(0,0,0,0.15); }
+        .tag-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 20px;
+            margin: 0 4px 4px 0;
+
+            font-size: 10px;
+            font-weight: 600;
+
+            background-color: var(--tag-dark);
+
+            /* 讓 getTagStyle() 自己決定黑字或白字 */
+            text-shadow: none;
+        }
         .gender-m { color: var(--male) !important; font-weight: bold; cursor: pointer; }
         .gender-f { color: var(--female) !important; font-weight: bold; cursor: pointer; }
         .prob-badge { font-size: 9px; background: rgba(0,0,0,0.1); padding: 1px 4px; border-radius: 4px; margin-left: 4px; color: #444; }
@@ -156,6 +230,159 @@
         .filter-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
         .muted-note { font-size:11px; color:#666; line-height:1.6; }
         .stat-card { background:#fafafa; border:1px solid #eee; border-radius:10px; padding:10px; margin-top:8px; }
+        /* =========================================================
+        全站夜間模式
+        ========================================================= */
+
+        html,
+        body {
+            transition:
+                background-color 0.25s ease,
+                color 0.25s ease;
+        }
+
+        html.dark-mode body {
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        /* 主要卡片 */
+        html.dark-mode .card,
+        html.dark-mode .breed-pair-card,
+        html.dark-mode .match-sticky-target {
+            background: var(--card);
+            color: var(--text);
+            border-color: var(--border);
+        }
+
+        /* 次要區塊 */
+        html.dark-mode .breed-pet-side,
+        html.dark-mode .category-block,
+        html.dark-mode .stat-card,
+        html.dark-mode .analysis-loading-box,
+        html.dark-mode .genetic-analysis-box,
+        html.dark-mode .genetic-chip {
+            background: var(--surface);
+            color: var(--text);
+            border-color: var(--border);
+        }
+
+        /*
+            你的部分 card 和 category-block 使用了行內 background，
+            因此夜間模式需要用 !important 蓋過。
+        */
+        html.dark-mode .card[style*="background"],
+        html.dark-mode .category-block[style*="background"] {
+            background: var(--surface) !important;
+            color: var(--text) !important;
+        }
+
+        /* 輸入欄、下拉選單和一般按鈕 */
+        html.dark-mode input,
+        html.dark-mode select,
+        html.dark-mode button {
+            background: var(--input-bg);
+            color: var(--text);
+            border-color: var(--border);
+        }
+
+        html.dark-mode input::placeholder {
+            color: var(--muted);
+        }
+
+        /* 分頁按鈕 */
+        html.dark-mode .tab-btn {
+            background: var(--button-bg);
+            color: var(--text);
+        }
+
+        html.dark-mode .tab-btn.active {
+            background: var(--primary) !important;
+            color: white !important;
+        }
+
+        /* 分類標題 */
+        html.dark-mode .reg-category-title {
+            background: var(--surface-2);
+            color: var(--text);
+        }
+
+        /* 次要文字 */
+        html.dark-mode .muted-note,
+        html.dark-mode .analysis-loading-box .sub {
+            color: var(--muted);
+        }
+
+        /* 表格 */
+        html.dark-mode .mini-table th {
+            background: var(--table-head);
+            color: var(--text);
+        }
+
+        html.dark-mode .mini-table th,
+        html.dark-mode .mini-table td {
+            border-bottom-color: var(--border);
+        }
+
+        /* 繁育卡片中央分隔線 */
+        html.dark-mode .breed-center {
+            border-left-color: var(--border);
+            border-right-color: var(--border);
+        }
+
+        /* Sticky 區域 */
+        html.dark-mode .match-sticky-target {
+            border-bottom-color: var(--border);
+        }
+
+        /* 存檔提示 */
+        html.dark-mode .saving-toast {
+            background: var(--toast-bg);
+            color: var(--text);
+            border-color: var(--border);
+            border-left-color: var(--primary);
+        }
+
+        /* 分析區塊 */
+        html.dark-mode .genetic-detail {
+            border-top-color: var(--border);
+        }
+
+        /* 小型數字標籤 */
+        html.dark-mode .prob-badge {
+            background: rgba(255, 255, 255, 0.12);
+            color: var(--text);
+        }
+
+        /* 夜間模式切換按鈕 */
+        .theme-toggle {
+            white-space: nowrap;
+            background: var(--button-bg);
+            color: var(--text);
+            border-color: var(--border);
+            cursor: pointer;
+        }
+
+        /*
+            修正原本寫死為白色或淺灰色的普通按鈕。
+            有紅色、綠色、紫色等功能按鈕不會被這段影響。
+        */
+        html.dark-mode button[style*="background:#eee"],
+        html.dark-mode button[style*="background: #eee"],
+        html.dark-mode button[style*="background:#fff"],
+        html.dark-mode button[style*="background: #fff"] {
+            background: var(--button-bg) !important;
+            color: var(--text) !important;
+            border-color: var(--border) !important;
+        }
+        html.dark-mode [style*="color:#666"],
+        html.dark-mode [style*="color: #666"],
+        html.dark-mode [style*="color:#777"],
+        html.dark-mode [style*="color: #777"],
+        html.dark-mode [style*="color:#888"],
+        html.dark-mode [style*="color: #888"] {
+            color: var(--muted) !important;
+        }
     </style>
 </head>
 <body>
@@ -182,7 +409,15 @@
         <header class="card">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h1>🐾 育寵配配配 </h1>
-                <div style="display: flex; gap: 10px;">
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <!-- 新增：日間／夜間模式 -->
+                    <button
+                        class="theme-toggle"
+                        @click="toggleDarkMode"
+                        :title="isDarkMode ? '切換為日間模式' : '切換為夜間模式'"
+                    >
+                        {{ isDarkMode ? '☀️ 日間模式' : '🌙 夜間模式' }}
+                    </button>
                     <button @click="fetchData()" :disabled="isLoading" :style="{cursor: isLoading ? 'not-allowed' : 'pointer'}">🔄 同步數據</button>
                     <button 
                         @click="weeklyReset" 
@@ -608,9 +843,16 @@
                     </thead>
 
                     <tbody v-if="filteredWeeklyNewBabies.length">
-                        <tr v-for="baby in filteredWeeklyNewBabies"
+                        <tr
+                            v-for="baby in filteredWeeklyNewBabies"
                             :key="baby.id"
-                            :style="{ background: baby.birthMethod === 'manual' ? '#f1f1f1' : '#ffffff' }">
+                            :style="{
+                                background:
+                                    baby.birthMethod === 'manual'
+                                        ? 'var(--surface)'
+                                        : 'var(--card)'
+                            }"
+                        >
 
                             <!-- 新增：分類 -->
                             <td>
@@ -1453,6 +1695,7 @@
                     scriptUrl: 'https://script.google.com/macros/s/AKfycby6yjFjI8t7tbQ8HYyiis2Z3si3YsVUQvoboJ45KYuHGDCi_-tV3_xiusYKMlLn4JRSfw/exec', 
                     // --- 介面狀態 ---
                     currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
+                    isDarkMode: false,
                     isLoading: false,   // 非同步期間禁用部分按鈕
                     syncMessage: '',    // 全螢幕 loading 提示文字；只用於必要等待流程。
                     isSaving: false,    // 小型背景存檔提示；不阻擋分頁與一般瀏覽。
@@ -2030,6 +2273,41 @@
                 // 共用狀態判斷與時間工具
                 // ============================================================
                 // 判斷是否為外部父母資料。所有列表、候選、扣次數、刷新都用同一套判斷，避免漏判。
+                // 將目前主題套用到整個 HTML 頁面
+                applyTheme() {
+                    document.documentElement.classList.toggle(
+                        'dark-mode',
+                        this.isDarkMode
+                    );
+
+                    // 讓瀏覽器原生下拉選單、捲軸等也配合深淺色
+                    document.documentElement.style.colorScheme =
+                        this.isDarkMode
+                            ? 'dark'
+                            : 'light';
+                },
+
+                // 手動切換日間／夜間模式
+                toggleDarkMode() {
+                    this.isDarkMode = !this.isDarkMode;
+
+                    this.applyTheme();
+
+                    // 記住這台裝置的選擇
+                    try {
+                        localStorage.setItem(
+                            'petAppTheme',
+                            this.isDarkMode
+                                ? 'dark'
+                                : 'light'
+                        );
+                    } catch (error) {
+                        console.warn(
+                            '無法儲存主題設定：',
+                            error
+                        );
+                    }
+                },
                 isExternalPet(pet) {
                     if (!pet) return false;
                     return pet.owner === '其他人' || pet.type === 'external' || pet.source === 'external';
@@ -5441,11 +5719,33 @@
             // --- 生命週期 ---
             // mounted：初始化資料；倒數只在繁育分頁每秒更新，避免其他分頁被 timer 連續觸發重繪。
             mounted() {
+    // 先讀取上一次儲存的主題
+                try {
+                    const savedTheme =
+                        localStorage.getItem('petAppTheme');
+
+                    this.isDarkMode =
+                        savedTheme === 'dark';
+                } catch (error) {
+                    // localStorage 不可用時預設日間模式
+                    this.isDarkMode = false;
+                }
+
+                // 先套用主題，再載入資料
+                this.applyTheme();
                 this.fetchData();
+
                 setInterval(() => {
                     if (this.currentTab !== 'breeding') return;
-                    this.breedingQueue.forEach(b => b.remainingTime = Math.max(0, Number(b.end) - Date.now()));
+
+                    this.breedingQueue.forEach(
+                        b => b.remainingTime = Math.max(
+                            0,
+                            Number(b.end) - Date.now()
+                        )
+                    );
                 }, 1000);
+
                 setInterval(() => {
                     this.tryBackgroundSync(false);
                 }, this.backgroundSyncIntervalMs);
